@@ -71,13 +71,23 @@ def init_database():
     try:
         # Force IPv4 connection to avoid IPv6 issues
         import socket
-        # Resolve hostname to IPv4
+        
+        # Get IPv4 address explicitly
+        host_ip = None
         try:
-            host_ip = socket.gethostbyname(SUPABASE_DB_HOST)
-            logger.info(f"Resolved {SUPABASE_DB_HOST} to {host_ip}")
-        except socket.gaierror:
+            # Get all address info and filter for IPv4
+            addr_info = socket.getaddrinfo(SUPABASE_DB_HOST, SUPABASE_DB_PORT, 
+                                         family=socket.AF_INET, 
+                                         type=socket.SOCK_STREAM)
+            if addr_info:
+                host_ip = addr_info[0][4][0]
+                logger.info(f"Resolved {SUPABASE_DB_HOST} to IPv4: {host_ip}")
+        except (socket.gaierror, OSError) as e:
+            logger.warning(f"Could not resolve IPv4 for {SUPABASE_DB_HOST}: {e}")
+            # Fallback: try direct hostname but force IPv4 in connection string
             host_ip = SUPABASE_DB_HOST
         
+        # Use connection string with IPv4 forcing
         db_pool = psycopg2.pool.ThreadedConnectionPool(
             1, 20,
             host=host_ip,
@@ -85,12 +95,13 @@ def init_database():
             database=SUPABASE_DB_NAME,
             user=SUPABASE_DB_USER,
             password=SUPABASE_DB_PASSWORD,
-            connect_timeout=10,
-            options="-c ip_family=ipv4"  # Force IPv4
+            connect_timeout=10
         )
         logger.info("Database connection pool created successfully")
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise
 
 # Global locks for thread safety
