@@ -69,13 +69,24 @@ def init_database():
     if db_pool is not None:
         return  # Already initialized
     try:
+        # Force IPv4 connection to avoid IPv6 issues
+        import socket
+        # Resolve hostname to IPv4
+        try:
+            host_ip = socket.gethostbyname(SUPABASE_DB_HOST)
+            logger.info(f"Resolved {SUPABASE_DB_HOST} to {host_ip}")
+        except socket.gaierror:
+            host_ip = SUPABASE_DB_HOST
+        
         db_pool = psycopg2.pool.ThreadedConnectionPool(
             1, 20,
-            host=SUPABASE_DB_HOST,
+            host=host_ip,
             port=SUPABASE_DB_PORT,
             database=SUPABASE_DB_NAME,
             user=SUPABASE_DB_USER,
-            password=SUPABASE_DB_PASSWORD
+            password=SUPABASE_DB_PASSWORD,
+            connect_timeout=10,
+            options="-c ip_family=ipv4"  # Force IPv4
         )
         logger.info("Database connection pool created successfully")
     except Exception as e:
@@ -1517,26 +1528,109 @@ def main():
 
 # Flask app for webhook
 flask_app = Flask(__name__)
+webhook_initialized = False
+
+def initialize_webhook_once():
+    """Initialize webhook once on startup"""
+    global application, webhook_initialized
+    if webhook_initialized:
+        return
+    
+    logger.info("Initializing bot application and webhook...")
+    
+    # Create application
+    if application is None:
+        create_app()
+    
+    # Set webhook
+    webhook_url = os.getenv("WEBHOOK_URL", "")
+    if webhook_url and application:
+        try:
+            # Set webhook synchronously using bot's synchronous method
+            import asyncio
+            
+            async def set_webhook_async():
+                try:
+                    await application.bot.set_webhook(
+                        url=f"{webhook_url}/webhook",
+                        allowed_updates=Update.ALL_TYPES,
+                        drop_pending_updates=True
+                    )
+                    logger.info(f"✅ Webhook set successfully: {webhook_url}/webhook")
+                    webhook_initialized = True
+                except Exception as e:
+                    logger.error(f"Failed to set webhook: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            # Create new event loop for webhook setup
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            if not loop.is_running():
+                loop.run_until_complete(set_webhook_async())
+            else:
+                # If loop is already running, schedule the coroutine
+                asyncio.ensure_future(set_webhook_async())
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize webhook: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 @flask_app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle incoming webhook updates"""
     global application
+    
+    # Initialize webhook on first request
+    if not webhook_initialized:
+        initialize_webhook_once()
+    
     if application is None:
         create_app()
     
     try:
         update = Update.de_json(request.json, application.bot)
-        application.process_update(update)
+        
+        # Process update asynchronously
+        import asyncio
+        
+        async def process_update_async():
+            await application.process_update(update)
+        
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        if loop.is_running():
+            # If loop is running, use run_coroutine_threadsafe or create_task
+            asyncio.ensure_future(process_update_async())
+        else:
+            loop.run_until_complete(process_update_async())
+        
         return 'OK', 200
     except Exception as e:
         logger.error(f"Error processing webhook update: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return 'Error', 500
 
 @flask_app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
     return {'status': 'ok'}, 200
+
+@flask_app.route('/', methods=['GET'])
+def index():
+    """Root endpoint"""
+    return {'status': 'Telegram Bot Webhook Server', 'health': '/health'}, 200
 
 def run_webhook():
     """Start the bot in webhook mode (for production)"""
@@ -1564,17 +1658,8 @@ def run_webhook():
         logger.error(f"Failed to set webhook: {e}")
         raise
 
-# Initialize app if running in webhook mode (for gunicorn)
-if os.getenv("USE_WEBHOOK", "false").lower() == "true":
-    logger.info("Initializing bot in webhook mode...")
-    webhook_url = os.getenv("WEBHOOK_URL", "")
-    if webhook_url:
-        try:
-            app = create_app()
-            app.bot.set_webhook(url=f"{webhook_url}/webhook", allowed_updates=Update.ALL_TYPES)
-            logger.info(f"✅ Webhook initialized: {webhook_url}/webhook")
-        except Exception as e:
-            logger.error(f"Failed to initialize webhook: {e}")
+# Note: Webhook will be set when Flask app starts, not during module import
+# This avoids issues with Application object initialization
 
 if __name__ == "__main__":
     # Check if running in production (webhook mode) or development (polling mode)
