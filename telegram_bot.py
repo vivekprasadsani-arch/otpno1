@@ -1521,12 +1521,17 @@ flask_app = Flask(__name__)
 @flask_app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle incoming webhook updates"""
+    global application
     if application is None:
         create_app()
     
-    update = Update.de_json(request.json, application.bot)
-    application.process_update(update)
-    return 'OK', 200
+    try:
+        update = Update.de_json(request.json, application.bot)
+        application.process_update(update)
+        return 'OK', 200
+    except Exception as e:
+        logger.error(f"Error processing webhook update: {e}")
+        return 'Error', 500
 
 @flask_app.route('/health', methods=['GET'])
 def health():
