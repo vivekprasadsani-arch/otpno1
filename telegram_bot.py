@@ -106,10 +106,13 @@ def get_user_status(user_id):
         result = supabase.table('users').select('status').eq('telegram_user_id', user_id).execute()
         if result.data and len(result.data) > 0:
             return result.data[0]['status']
-        return None
+        # If user not found in database, return 'pending' (not None)
+        # This ensures new users are blocked until approved
+        return 'pending'
     except Exception as e:
         logger.error(f"Error in get_user_status: {e}")
-        return None
+        # On error, default to 'pending' for security
+        return 'pending'
 
 def add_user(user_id, username):
     """Add new user to database"""
@@ -1124,6 +1127,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Handle country selection
     elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text:
+        # Re-check approval status for security
+        status = get_user_status(user_id)
+        if status != 'approved':
+            await update.message.reply_text("❌ Your access is pending approval.")
+            return
+        
         if text == "🔙 Back":
             keyboard = [
                 [KeyboardButton("💬 WhatsApp"), KeyboardButton("👥 Facebook")],
