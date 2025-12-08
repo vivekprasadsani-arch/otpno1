@@ -1518,10 +1518,23 @@ def create_app():
     if api_client:
         logger.info("✅ API client initialized (login will retry on first API call if needed)")
     
-    # Create application
-    # Use standard builder - it will work for both polling and webhook
+    # Create application for webhook mode
+    # For webhook, we need to provide an update queue
     try:
-        application = Application.builder().token(BOT_TOKEN).build()
+        import asyncio
+        from asyncio import Queue
+        
+        # Create update queue for webhook mode
+        update_queue = Queue()
+        
+        # Build application with update queue for webhook
+        builder = Application.builder().token(BOT_TOKEN)
+        
+        # Set update queue for webhook mode
+        if os.getenv("USE_WEBHOOK", "false").lower() == "true":
+            builder = builder.update_queue(update_queue)
+        
+        application = builder.build()
         logger.info("✅ Telegram Application created successfully")
     except Exception as e:
         logger.error(f"Failed to create Application: {e}")
@@ -1572,11 +1585,15 @@ def initialize_webhook_once():
                 
                 async def set_webhook_async():
                     try:
+                        # Initialize application first
+                        await application.initialize()
                         await application.bot.set_webhook(
                             url=f"{webhook_url}/webhook",
                             allowed_updates=Update.ALL_TYPES,
                             drop_pending_updates=True
                         )
+                        # Start the application to process updates from queue
+                        await application.start()
                         logger.info(f"✅ Webhook set successfully: {webhook_url}/webhook")
                     except Exception as e:
                         logger.error(f"Failed to set webhook: {e}")
@@ -1584,11 +1601,22 @@ def initialize_webhook_once():
                         logger.error(traceback.format_exc())
                         raise
                 
-                # Create new event loop for webhook setup
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(set_webhook_async())
-                loop.close()
+                # Create new event loop for webhook setup (persistent)
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                if loop.is_running():
+                    # If loop is running, schedule it
+                    future = asyncio.run_coroutine_threadsafe(set_webhook_async(), loop)
+                    future.result(timeout=30)
+                else:
+                    loop.run_until_complete(set_webhook_async())
                 
                 webhook_initialized = True
                 logger.info("✅ Webhook initialization completed")
