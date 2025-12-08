@@ -6,10 +6,13 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python telegram_bot.py
     envVars:
-      - key: USE_WEBHOOK
-        value: true
       - key: PORT
         value: $PORT
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: telegram-otp-bot
+          type: web
+          property: host
       - key: BOT_TOKEN
         sync: false
       - key: ADMIN_USER_ID
