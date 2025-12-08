@@ -1504,12 +1504,11 @@ def webhook():
             
             if loop and loop.is_running():
                 # Loop is running in background thread, schedule coroutine safely
-                future = asyncio.run_coroutine_threadsafe(
+                # Don't wait for result - Telegram expects quick response
+                asyncio.run_coroutine_threadsafe(
                     application.process_update(update),
                     loop
                 )
-                # Wait for completion with timeout
-                future.result(timeout=30)
             else:
                 # Loop not running yet, use temporary event loop
                 temp_loop = get_or_create_event_loop()
