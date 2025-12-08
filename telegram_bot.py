@@ -661,10 +661,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton("✈️ Telegram")]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-        await update.message.reply_text(
-            "✅ Welcome! Please select a service:",
-            reply_markup=reply_markup
-        )
+        try:
+            await update.message.reply_text(
+                "✅ Welcome! Please select a service:",
+                reply_markup=reply_markup,
+                read_timeout=30,
+                write_timeout=30,
+                connect_timeout=30
+            )
+        except Exception as e:
+            logger.error(f"Error sending welcome message: {e}")
     elif status == 'rejected':
         await update.message.reply_text("❌ Your access has been rejected. Please contact admin.")
     else:
@@ -683,11 +689,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await context.bot.send_message(
-                chat_id=ADMIN_USER_ID,
-                text=admin_message,
-                reply_markup=reply_markup
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_USER_ID,
+                    text=admin_message,
+                    reply_markup=reply_markup,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30
+                )
+            except Exception as send_error:
+                logger.error(f"Error sending admin notification: {send_error}")
         except Exception as e:
             logger.error(f"Error notifying admin: {e}")
         
@@ -962,6 +974,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Start monitoring in background (5 minutes timeout = 150 checks at 2s interval)
         import time
+        # Check if job_queue is available
+        if context.job_queue is None:
+            logger.warning("JobQueue not available. Cannot start OTP monitoring.")
+            await query.edit_message_text("❌ Error: JobQueue not initialized. Please contact admin.")
+            return
+        
         job = context.job_queue.run_repeating(
             monitor_otp,
             interval=2,
@@ -1205,6 +1223,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Start monitoring in background
             import time
+            # Check if job_queue is available
+            if context.job_queue is None:
+                logger.warning("JobQueue not available. Cannot start OTP monitoring.")
+                await update.message.reply_text("❌ Error: JobQueue not initialized. Please contact admin.")
+                return
+            
             job = context.job_queue.run_repeating(
                 monitor_otp,
                 interval=2,
