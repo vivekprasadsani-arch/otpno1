@@ -1470,6 +1470,11 @@ def get_or_create_event_loop():
         asyncio.set_event_loop(webhook_loop)
         return webhook_loop
 
+def get_background_loop():
+    """Get the background event loop that's running JobQueue"""
+    global webhook_loop
+    return webhook_loop
+
 @flask_app.route('/')
 def health_check():
     """Health check endpoint for Render"""
@@ -1494,16 +1499,21 @@ def webhook():
             json_data = request.get_json(force=True)
             update = Update.de_json(json_data, application.bot)
             
-            # Get the event loop - use the one from background thread if available
-            loop = get_or_create_event_loop()
+            # Get the background event loop (running in background thread for JobQueue)
+            loop = get_background_loop()
             
-            # Check if loop is already running
-            if loop.is_running():
-                # Schedule as a task in the running loop
-                asyncio.create_task(application.process_update(update))
+            if loop and loop.is_running():
+                # Loop is running in background thread, schedule coroutine safely
+                future = asyncio.run_coroutine_threadsafe(
+                    application.process_update(update),
+                    loop
+                )
+                # Wait for completion with timeout
+                future.result(timeout=30)
             else:
-                # Loop not running, use run_until_complete
-                loop.run_until_complete(application.process_update(update))
+                # Loop not running yet, use temporary event loop
+                temp_loop = get_or_create_event_loop()
+                temp_loop.run_until_complete(application.process_update(update))
         except Exception as e:
             logger.error(f"Webhook error: {e}")
             import traceback
