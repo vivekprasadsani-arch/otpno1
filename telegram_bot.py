@@ -1650,53 +1650,24 @@ def webhook():
                 if loop.is_running():
                     try:
                         # In webhook mode, we need to manually process updates using process_update()
-                        # The update_queue is only used in polling mode
                         logger.info(f"🔄 Processing update {update.update_id} in background loop")
                         
-                        # Schedule process_update to run in the background event loop
-                        future = asyncio.run_coroutine_threadsafe(
-                            application.process_update(update),
-                            loop
-                        )
-                        logger.info(f"✅ Update {update.update_id} scheduled for processing")
-                        
-                        # Add callback to log completion/errors
-                        def on_complete(fut):
+                        # Use call_soon_threadsafe to schedule the coroutine as a task
+                        async def process_update_task():
                             try:
-                                logger.info(f"🔔 Future callback called for update {update.update_id}")
-                                if fut.cancelled():
-                                    logger.warning(f"⚠️ Update {update.update_id} was cancelled")
-                                elif fut.exception():
-                                    exc = fut.exception()
-                                    logger.error(f"❌ Error processing update {update.update_id}: {exc}")
-                                    import traceback
-                                    logger.error(traceback.format_exc())
-                                else:
-                                    result = fut.result(timeout=0.1)
-                                    logger.info(f"✅ Update {update.update_id} processed successfully, result: {result}")
+                                logger.info(f"🔄 Starting to process update {update.update_id}")
+                                await application.process_update(update)
+                                logger.info(f"✅ Update {update.update_id} processed successfully")
                             except Exception as e:
-                                logger.error(f"❌ Error in future callback for update {update.update_id}: {e}")
+                                logger.error(f"❌ Error processing update {update.update_id}: {e}")
                                 import traceback
                                 logger.error(traceback.format_exc())
                         
-                        future.add_done_callback(on_complete)
-                        
-                        # Also check status after 5 seconds as backup
-                        def check_status():
-                            try:
-                                if future.done():
-                                    logger.info(f"✅ Future for update {update.update_id} is done (check_status)")
-                                    if future.exception():
-                                        logger.error(f"❌ Exception in future for update {update.update_id}: {future.exception()}")
-                                    else:
-                                        logger.info(f"✅ Update {update.update_id} completed (check_status)")
-                                else:
-                                    logger.warning(f"⚠️ Update {update.update_id} still not done after 5 seconds")
-                            except Exception as e:
-                                logger.error(f"Error in check_status for update {update.update_id}: {e}")
-                        
-                        import threading
-                        threading.Timer(5.0, check_status).start()
+                        # Schedule the task in the event loop
+                        loop.call_soon_threadsafe(
+                            lambda: asyncio.create_task(process_update_task())
+                        )
+                        logger.info(f"✅ Update {update.update_id} scheduled for processing")
                     except Exception as e:
                         logger.error(f"Error scheduling update to bot loop: {e}")
                         import traceback
