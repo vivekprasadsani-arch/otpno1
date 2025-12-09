@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import logging
 from supabase import create_client, Client
-from flask import Flask, request, Response
+# Flask removed - using polling mode only
 
 # Try to import cloudscraper for Cloudflare bypass
 try:
@@ -1461,75 +1461,11 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
 # Global application instance
 application = None
 
-# ==================== FLASK APP (for Webhook) ====================
-flask_app = Flask(__name__)
+# Flask/webhook code removed - using polling mode only (like backup bot)
 
-# Global event loop for webhook mode - used by background thread for JobQueue
-bot_event_loop = None
-
-def get_bot_event_loop():
-    """Get the bot's event loop (running in background thread for JobQueue)"""
-    global bot_event_loop
-    return bot_event_loop
-
-
-@flask_app.route('/')
-def health_check():
-    """Health check endpoint for Render"""
-    return Response('OK - Bot is running', status=200)
-
-@flask_app.route('/webhook', methods=['POST'])
-def webhook():
-    """Handle incoming Telegram updates via webhook"""
+def main():
+    """Start the bot - Using POLLING mode (like backup bot)"""
     global application
-    
-    # Ensure application is initialized
-    if application is None:
-        logger.warning("Application not initialized, initializing now...")
-        try:
-            init_application_if_needed()
-        except Exception as e:
-            logger.error(f"Failed to initialize application: {e}")
-            return Response('Internal Server Error', status=500)
-    
-    if request.method == 'POST':
-        try:
-            json_data = request.get_json(force=True)
-            update = Update.de_json(json_data, application.bot)
-            
-            # Process update using the background event loop (where JobQueue is running)
-            loop = get_bot_event_loop()
-            if loop and not loop.is_closed():
-                try:
-                    # Schedule coroutine to the background thread's event loop
-                    asyncio.run_coroutine_threadsafe(
-                        application.process_update(update),
-                        loop
-                    )
-                except Exception as e:
-                    logger.error(f"Error scheduling update to bot loop: {e}")
-            else:
-                logger.error("Bot event loop not available, using fallback")
-                # Fallback: create temporary loop if background loop not ready
-                temp_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(temp_loop)
-                temp_loop.run_until_complete(application.process_update(update))
-                temp_loop.close()
-        except Exception as e:
-            logger.error(f"Webhook error: {e}")
-            import traceback
-            traceback.print_exc()
-        return Response('OK', status=200)
-    return Response('Method not allowed', status=405)
-
-def init_application_if_needed():
-    """Initialize application if not already initialized (for gunicorn)"""
-    global application
-    
-    if application is not None:
-        return
-    
-    logger.info("Initializing application...")
     
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -1541,6 +1477,21 @@ def init_application_if_needed():
     application.add_handler(CommandHandler("pending", admin_commands))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    logger.info("Bot starting...")
+    logger.info(f"Admin User ID: {ADMIN_USER_ID}")
+    
+    # Delete any existing webhook to prevent token conflicts
+    # This ensures only polling is active, no webhook conflicts
+    logger.info("🗑️ Deleting any existing webhook to prevent token conflicts...")
+    delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+    try:
+        response = requests.get(delete_url, timeout=5)
+        if response.status_code == 200:
+            logger.info("✅ Existing webhook deleted (if any)")
+        time.sleep(1)
+    except Exception as e:
+        logger.warning(f"⚠️ Could not delete webhook (may not exist): {e}")
     
     # Initialize database
     try:
@@ -1556,180 +1507,13 @@ def init_application_if_needed():
     if api_client:
         logger.info("✅ API client initialized")
     
-    # Initialize application for webhook mode
-    render_url = os.environ.get('RENDER_EXTERNAL_URL', '')
-    if not render_url:
-        render_url = os.environ.get('WEBHOOK_URL', '')
-    
-    if render_url:
-        # Setup webhook
-        if setup_webhook():
-            # Initialize the application (exactly like working bot)
-            loop = asyncio.get_event_loop()
-            
-            # Initialize and start application in main thread BEFORE starting Flask server
-            # This matches working bot pattern exactly: initialize/start first, then run Flask
-            loop.run_until_complete(application.initialize())
-            loop.run_until_complete(application.start())
-            logger.info("✅ Application initialized and started for webhook mode")
-            
-            # Verify JobQueue is available
-            if application.job_queue:
-                logger.info("✅ JobQueue is available and running")
-            else:
-                logger.warning("⚠️ JobQueue is not available - OTP monitoring may not work")
-            
-        else:
-            logger.warning("Failed to setup webhook, application may not work correctly")
-
-def setup_webhook():
-    """Setup webhook for Telegram bot"""
-    # Get Render URL from environment or use WEBHOOK_URL
-    render_url = os.environ.get('RENDER_EXTERNAL_URL', '')
-    if not render_url:
-        render_url = os.environ.get('WEBHOOK_URL', '')
-    
-    if render_url:
-        webhook_url = f"{render_url}/webhook" if not render_url.endswith('/webhook') else render_url
-        
-        # Delete any existing webhook first
-        delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
-        try:
-            requests.get(delete_url, timeout=5)
-            time.sleep(1)
-        except:
-            pass
-        
-        # Set new webhook
-        set_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-        response = requests.post(set_url, json={
-            'url': webhook_url,
-            'drop_pending_updates': True,
-            'allowed_updates': ['message', 'callback_query']
-        }, timeout=10)
-        
-        if response.status_code == 200:
-            logger.info(f"✅ Webhook set successfully: {webhook_url}")
-            return True
-        else:
-            logger.error(f"❌ Failed to set webhook: {response.text}")
-            return False
-    else:
-        logger.warning("⚠️ RENDER_EXTERNAL_URL or WEBHOOK_URL not set, running in polling mode")
-        return False
-
-def main():
-    """Start the bot"""
-    global application
-    
-    # Create application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("users", admin_commands))
-    application.add_handler(CommandHandler("remove", admin_commands))
-    application.add_handler(CommandHandler("pending", admin_commands))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    logger.info("Bot started!")
-    logger.info(f"Admin User ID: {ADMIN_USER_ID}")
-    
-    # Check if running on Render (webhook mode) or locally (polling mode)
-    render_url = os.environ.get('RENDER_EXTERNAL_URL', '')
-    if not render_url:
-        render_url = os.environ.get('WEBHOOK_URL', '')
-    
-    if render_url:
-        # Webhook mode for Render
-        logger.info("🌐 Running in WEBHOOK mode (Render)")
-        
-        # Setup webhook
-        if setup_webhook():
-            # Initialize database
-            try:
-                init_database()
-                logger.info("✅ Database initialized successfully")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize database: {e}")
-                logger.warning("Bot will continue but database operations may fail")
-            
-            # Initialize global API client
-            logger.info("Initializing global API client...")
-            api_client = get_global_api_client()
-            if api_client:
-                logger.info("✅ API client initialized")
-            
-            # Initialize the application and start event loop in background thread for JobQueue
-            global bot_event_loop
-            bot_event_loop = asyncio.new_event_loop()
-            
-            # Initialize and start application in background thread - JobQueue needs continuous loop
-            def run_bot():
-                global bot_event_loop
-                try:
-                    # Set this loop as the thread's event loop
-                    asyncio.set_event_loop(bot_event_loop)
-                    
-                    bot_event_loop.run_until_complete(application.initialize())
-                    bot_event_loop.run_until_complete(application.start())
-                    logger.info("✅ Application initialized and started for webhook mode")
-                    
-                    # Verify JobQueue is available
-                    if application.job_queue:
-                        logger.info("✅ JobQueue is available and running")
-                    else:
-                        logger.warning("⚠️ JobQueue is not available - OTP monitoring may not work")
-                    
-                    # Keep event loop running for JobQueue
-                    bot_event_loop.run_forever()
-                except Exception as e:
-                    logger.error(f"Error in bot thread: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Start bot in background thread so event loop keeps running for JobQueue
-            bot_thread = threading.Thread(target=run_bot, daemon=True)
-            bot_thread.start()
-            
-            # Give bot time to initialize
-            time.sleep(3)
-            
-            # Start Flask server in main thread
-            port = int(os.environ.get('PORT', 10000))
-            logger.info(f"🚀 Starting Flask server on port {port}")
-            flask_app.run(host='0.0.0.0', port=port, threaded=True)
-        else:
-            logger.error("Failed to setup webhook, falling back to polling")
-            run_polling_mode()
-    else:
-        # Polling mode for local development
-        logger.info("🔄 Running in POLLING mode (Local)")
-        
-        # Initialize database
-        try:
-            init_database()
-            logger.info("✅ Database initialized successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize database: {e}")
-            logger.warning("Bot will continue but database operations may fail")
-        
-        # Initialize global API client
-        logger.info("Initializing global API client...")
-        api_client = get_global_api_client()
-        if api_client:
-            logger.info("✅ API client initialized")
-        
-        run_polling_mode()
-
-def run_polling_mode():
-    """Run bot in polling mode (for local development)"""
+    # Run in polling mode (EXACTLY like backup bot - 100% unchanged)
+    # This works on both local and Render - no webhook needed
+    logger.info("🔄 Starting bot in POLLING mode (works on Render and local)")
     try:
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            stop_signals=None
+            drop_pending_updates=True
         )
     except KeyboardInterrupt:
         logger.info("Bot stopped by user (KeyboardInterrupt)")
