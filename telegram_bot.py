@@ -1484,9 +1484,23 @@ def webhook():
             json_data = request.get_json(force=True)
             update = Update.de_json(json_data, application.bot)
             
-            # Use persistent event loop (exactly like working bot)
+            # Process update using the background event loop
             loop = asyncio.get_event_loop()
-            loop.run_until_complete(application.process_update(update))
+            try:
+                # If loop is running in background thread, schedule coroutine
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        application.process_update(update),
+                        loop
+                    )
+                else:
+                    loop.run_until_complete(application.process_update(update))
+            except RuntimeError:
+                # Fallback: create temporary loop if needed
+                temp_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(temp_loop)
+                temp_loop.run_until_complete(application.process_update(update))
+                temp_loop.close()
         except Exception as e:
             logger.error(f"Webhook error: {e}")
             import traceback
@@ -1633,23 +1647,38 @@ def main():
             if api_client:
                 logger.info("✅ API client initialized")
             
-            # Initialize the application (exactly like working bot)
-            loop = asyncio.get_event_loop()
+            # Initialize the application and start event loop in background thread for JobQueue
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            # Initialize and start application in main thread BEFORE starting Flask server
-            # This matches working bot pattern exactly: initialize/start first, then run Flask
-            loop.run_until_complete(application.initialize())
-            loop.run_until_complete(application.start())
-            logger.info("✅ Application initialized and started for webhook mode")
+            # Initialize and start application in background thread - JobQueue needs continuous loop
+            def run_bot():
+                try:
+                    loop.run_until_complete(application.initialize())
+                    loop.run_until_complete(application.start())
+                    logger.info("✅ Application initialized and started for webhook mode")
+                    
+                    # Verify JobQueue is available
+                    if application.job_queue:
+                        logger.info("✅ JobQueue is available and running")
+                    else:
+                        logger.warning("⚠️ JobQueue is not available - OTP monitoring may not work")
+                    
+                    # Keep event loop running for JobQueue
+                    loop.run_forever()
+                except Exception as e:
+                    logger.error(f"Error in bot thread: {e}")
+                    import traceback
+                    traceback.print_exc()
             
-            # Verify JobQueue is available
-            if application.job_queue:
-                logger.info("✅ JobQueue is available and running")
-            else:
-                logger.warning("⚠️ JobQueue is not available - OTP monitoring may not work")
+            # Start bot in background thread so event loop keeps running for JobQueue
+            bot_thread = threading.Thread(target=run_bot, daemon=True)
+            bot_thread.start()
             
+            # Give bot time to initialize
+            time.sleep(2)
             
-            # Start Flask server
+            # Start Flask server in main thread
             port = int(os.environ.get('PORT', 10000))
             logger.info(f"🚀 Starting Flask server on port {port}")
             flask_app.run(host='0.0.0.0', port=port, threaded=True)
