@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import logging
 from supabase import create_client, Client
-# Flask removed - using polling mode only
+from flask import Flask, request, Response
 
 # Try to import cloudscraper for Cloudflare bypass
 try:
