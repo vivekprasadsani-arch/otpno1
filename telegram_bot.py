@@ -1470,10 +1470,6 @@ def get_or_create_event_loop():
         asyncio.set_event_loop(webhook_loop)
         return webhook_loop
 
-def get_background_loop():
-    """Get the background event loop that's running JobQueue"""
-    global webhook_loop
-    return webhook_loop
 
 @flask_app.route('/')
 def health_check():
