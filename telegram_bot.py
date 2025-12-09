@@ -1299,6 +1299,9 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
     number = job.data['number']
     start_time = job.data.get('start_time', time.time())
     
+    # Debug: Log that monitoring is running
+    logger.info(f"🔍 Monitoring OTP for user {user_id}, number {number} (elapsed: {int(time.time() - start_time)}s)")
+    
     # Timeout after 5 minutes
     if time.time() - start_time > 300:
         job.schedule_removal()
