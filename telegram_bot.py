@@ -1652,30 +1652,40 @@ def webhook():
                         # In webhook mode, we need to manually process updates using process_update()
                         logger.info(f"🔄 Processing update {update.update_id} in background loop")
                         
-                        # Create a coroutine that processes the update
+                        # Create a coroutine that processes the update with detailed logging
                         async def process_update_task():
                             try:
                                 logger.info(f"🔄 Starting to process update {update.update_id}")
-                                await application.process_update(update)
-                                logger.info(f"✅ Update {update.update_id} processed successfully")
+                                result = await application.process_update(update)
+                                logger.info(f"✅ Update {update.update_id} processed successfully, result: {result}")
+                                return result
                             except Exception as e:
                                 logger.error(f"❌ Error processing update {update.update_id}: {e}")
                                 import traceback
                                 logger.error(traceback.format_exc())
+                                raise
                         
-                        # Schedule the coroutine to run in the background event loop
-                        # Use call_soon_threadsafe to schedule a callback that creates the task
-                        def schedule_task():
+                        # Use run_coroutine_threadsafe to schedule the coroutine properly
+                        # This is the correct way to schedule coroutines from a different thread
+                        future = asyncio.run_coroutine_threadsafe(
+                            process_update_task(),
+                            loop
+                        )
+                        logger.info(f"✅ Update {update.update_id} scheduled for processing (future: {future})")
+                        
+                        # Add callback to track completion
+                        def on_complete(fut):
                             try:
-                                task = asyncio.create_task(process_update_task())
-                                logger.info(f"✅ Task created for update {update.update_id}")
+                                if fut.cancelled():
+                                    logger.warning(f"⚠️ Update {update.update_id} was cancelled")
+                                elif fut.exception():
+                                    logger.error(f"❌ Error in update {update.update_id}: {fut.exception()}")
+                                else:
+                                    logger.info(f"✅ Update {update.update_id} completed via callback")
                             except Exception as e:
-                                logger.error(f"❌ Error creating task for update {update.update_id}: {e}")
-                                import traceback
-                                logger.error(traceback.format_exc())
+                                logger.error(f"Error in callback: {e}")
                         
-                        loop.call_soon_threadsafe(schedule_task)
-                        logger.info(f"✅ Update {update.update_id} scheduled for processing")
+                        future.add_done_callback(on_complete)
                     except Exception as e:
                         logger.error(f"Error scheduling update to bot loop: {e}")
                         import traceback
