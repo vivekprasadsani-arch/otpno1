@@ -1496,19 +1496,28 @@ def webhook():
             
             # Process update using the background event loop (where JobQueue is running)
             loop = get_bot_event_loop()
-            if loop and not loop.is_closed() and loop.is_running():
-                try:
-                    # Schedule coroutine to the background thread's event loop
-                    future = asyncio.run_coroutine_threadsafe(
-                        application.process_update(update),
-                        loop
-                    )
-                    # Don't wait for result - return OK immediately to Telegram
-                    # This prevents timeout errors
-                except Exception as e:
-                    logger.error(f"Error scheduling update to bot loop: {e}")
+            if loop and not loop.is_closed():
+                if loop.is_running():
+                    try:
+                        # Schedule coroutine to the background thread's event loop
+                        future = asyncio.run_coroutine_threadsafe(
+                            application.process_update(update),
+                            loop
+                        )
+                        # Don't wait for result - return OK immediately to Telegram
+                        # This prevents timeout errors
+                    except Exception as e:
+                        logger.error(f"Error scheduling update to bot loop: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    logger.warning("Event loop exists but not running, trying to process directly")
+                    try:
+                        loop.run_until_complete(application.process_update(update))
+                    except Exception as e:
+                        logger.error(f"Direct processing failed: {e}")
             else:
-                logger.error("Bot event loop not available or not running")
+                logger.error(f"Bot event loop not available - loop: {loop}, closed: {loop.is_closed() if loop else 'N/A'}")
                 # Fallback: try to process in current thread
                 try:
                     temp_loop = asyncio.new_event_loop()
@@ -1517,6 +1526,8 @@ def webhook():
                     temp_loop.close()
                 except Exception as e:
                     logger.error(f"Fallback processing failed: {e}")
+                    import traceback
+                    traceback.print_exc()
         except Exception as e:
             logger.error(f"Webhook error: {e}")
             import traceback
@@ -1575,24 +1586,32 @@ def main():
             def run_bot():
                 global bot_event_loop
                 try:
+                    logger.info("🔄 Starting bot background thread...")
                     # Set this loop as the thread's event loop
                     asyncio.set_event_loop(bot_event_loop)
+                    logger.info("✅ Event loop set for background thread")
                     
                     # Initialize and start application
+                    logger.info("🔄 Initializing application...")
                     bot_event_loop.run_until_complete(application.initialize())
+                    logger.info("✅ Application initialized")
+                    
+                    logger.info("🔄 Starting application...")
                     bot_event_loop.run_until_complete(application.start())
-                    logger.info("✅ Application initialized and started for webhook mode")
+                    logger.info("✅ Application started for webhook mode")
                     
                     # Verify JobQueue is available
                     if application.job_queue:
                         logger.info("✅ JobQueue is available and running")
+                        logger.info(f"✅ JobQueue scheduler: {application.job_queue.scheduler}")
                     else:
-                        logger.warning("⚠️ JobQueue is not available - OTP monitoring may not work")
+                        logger.error("❌ JobQueue is NOT available - OTP monitoring will NOT work")
                     
                     # Keep event loop running for JobQueue
+                    logger.info("🔄 Event loop running forever for JobQueue...")
                     bot_event_loop.run_forever()
                 except Exception as e:
-                    logger.error(f"Error in bot thread: {e}")
+                    logger.error(f"❌ Error in bot thread: {e}")
                     import traceback
                     traceback.print_exc()
             
