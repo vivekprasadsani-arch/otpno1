@@ -1649,16 +1649,32 @@ def webhook():
             if loop and not loop.is_closed():
                 if loop.is_running():
                     try:
-                        # Use update_queue.put() instead of process_update() - this is the proper way for webhook mode
-                        # The update processor will handle it from the queue
-                        logger.info(f"🔄 Putting update {update.update_id} into update queue")
+                        # In webhook mode, we need to manually process updates using process_update()
+                        # The update_queue is only used in polling mode
+                        logger.info(f"🔄 Processing update {update.update_id} in background loop")
                         
-                        # Put update into the queue (this is thread-safe)
-                        loop.call_soon_threadsafe(
-                            application.update_queue.put_nowait,
-                            update
+                        # Schedule process_update to run in the background event loop
+                        future = asyncio.run_coroutine_threadsafe(
+                            application.process_update(update),
+                            loop
                         )
-                        logger.info(f"✅ Update {update.update_id} added to update queue")
+                        logger.info(f"✅ Update {update.update_id} scheduled for processing")
+                        
+                        # Add callback to log completion/errors
+                        def on_complete(fut):
+                            try:
+                                if fut.cancelled():
+                                    logger.warning(f"⚠️ Update {update.update_id} was cancelled")
+                                elif fut.exception():
+                                    logger.error(f"❌ Error processing update {update.update_id}: {fut.exception()}")
+                                    import traceback
+                                    traceback.print_exc()
+                                else:
+                                    logger.info(f"✅ Update {update.update_id} processed successfully")
+                            except Exception as e:
+                                logger.error(f"Error in future callback: {e}")
+                        
+                        future.add_done_callback(on_complete)
                     except Exception as e:
                         logger.error(f"Error scheduling update to bot loop: {e}")
                         import traceback
