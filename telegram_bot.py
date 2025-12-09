@@ -1650,31 +1650,46 @@ def webhook():
                 if loop.is_running():
                     try:
                         # Schedule coroutine to the background thread's event loop
+                        logger.info(f"🔄 Scheduling update {update.update_id} to background loop (running: {loop.is_running()})")
                         future = asyncio.run_coroutine_threadsafe(
                             application.process_update(update),
                             loop
                         )
-                        logger.info(f"✅ Update {update.update_id} scheduled to background loop")
-                        # Don't wait for result - return OK immediately to Telegram
-                        # This prevents timeout errors
-                        # But check for exceptions after a short delay
+                        logger.info(f"✅ Update {update.update_id} scheduled to background loop, future: {future}")
+                        
+                        # Add callback to future to log when it completes
+                        def on_complete(fut):
+                            try:
+                                if fut.cancelled():
+                                    logger.warning(f"⚠️ Update {update.update_id} was cancelled")
+                                elif fut.exception():
+                                    logger.error(f"❌ Error processing update {update.update_id}: {fut.exception()}")
+                                    import traceback
+                                    traceback.print_exc()
+                                else:
+                                    logger.info(f"✅ Update {update.update_id} completed successfully")
+                            except Exception as e:
+                                logger.error(f"Error in future callback for update {update.update_id}: {e}")
+                        
+                        future.add_done_callback(on_complete)
+                        
+                        # Also check result after a delay as backup
                         def check_result():
                             try:
-                                # Check if there was an exception (non-blocking)
                                 if future.done():
                                     exc = future.exception()
                                     if exc:
-                                        logger.error(f"❌ Error processing update {update.update_id}: {exc}")
-                                        import traceback
-                                        traceback.print_exc()
+                                        logger.error(f"❌ Error processing update {update.update_id} (check_result): {exc}")
                                     else:
-                                        logger.info(f"✅ Update {update.update_id} processed successfully")
+                                        logger.info(f"✅ Update {update.update_id} processed (check_result)")
+                                else:
+                                    logger.warning(f"⚠️ Update {update.update_id} still processing after 3s")
                             except Exception as e:
-                                logger.error(f"Error checking future result: {e}")
+                                logger.error(f"Error checking future result for update {update.update_id}: {e}")
                         
-                        # Schedule result check after 1 second (non-blocking)
+                        # Schedule result check after 3 seconds (non-blocking)
                         import threading
-                        threading.Timer(1.0, check_result).start()
+                        threading.Timer(3.0, check_result).start()
                     except Exception as e:
                         logger.error(f"Error scheduling update to bot loop: {e}")
                         import traceback
