@@ -648,14 +648,20 @@ def get_country_flag(country_name):
 # Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
-    user = update.effective_user
-    user_id = user.id
-    username = user.username or user.first_name or "Unknown"
-    
-    # Add user to database
-    add_user(user_id, username)
-    
-    status = get_user_status(user_id)
+    try:
+        logger.info(f"📥 /start command received from user {update.effective_user.id if update.effective_user else 'unknown'}")
+        user = update.effective_user
+        user_id = user.id
+        username = user.username or user.first_name or "Unknown"
+        
+        logger.info(f"Processing /start for user {user_id} ({username})")
+        
+        # Add user to database
+        add_user(user_id, username)
+        logger.info(f"✅ User {user_id} added to database")
+        
+        status = get_user_status(user_id)
+        logger.info(f"User {user_id} status: {status}")
     
     if status == 'approved':
         # Show service menu with ReplyKeyboardMarkup
