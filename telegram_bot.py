@@ -1719,33 +1719,6 @@ def main():
         import traceback
         traceback.print_exc()
 
-def setup_webhook(render_url):
-    """Setup webhook for Telegram bot"""
-    webhook_url = f"{render_url}/webhook" if not render_url.endswith('/webhook') else render_url
-    
-    # Delete any existing webhook first
-    delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
-    try:
-        requests.get(delete_url, timeout=5)
-        time.sleep(1)
-    except:
-        pass
-    
-    # Set new webhook
-    set_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-    response = requests.post(set_url, json={
-        'url': webhook_url,
-        'drop_pending_updates': True,
-        'allowed_updates': ['message', 'callback_query']
-    }, timeout=10)
-    
-    if response.status_code == 200:
-        logger.info(f"✅ Webhook set successfully: {webhook_url}")
-        return True
-    else:
-        logger.error(f"❌ Failed to set webhook: {response.text}")
-        return False
-
 if __name__ == "__main__":
     main()
 
