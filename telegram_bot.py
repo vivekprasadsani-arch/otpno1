@@ -1500,31 +1500,9 @@ def webhook():
             update = Update.de_json(json_data, application.bot)
             
             # Use persistent event loop (exactly like working bot)
-            # Working bot uses: loop.run_until_complete(bot_application.process_update(update))
+            # Working bot: loop.run_until_complete(bot_application.process_update(update))
             loop = get_or_create_event_loop()
-            
-            # Try to use the same loop - if it's running in background thread, schedule
-            # Otherwise use run_until_complete directly
-            try:
-                if loop.is_running():
-                    # Loop is running in background thread, schedule coroutine
-                    asyncio.run_coroutine_threadsafe(
-                        application.process_update(update),
-                        loop
-                    )
-                else:
-                    # Loop not running in this thread, can use run_until_complete
-                    loop.run_until_complete(application.process_update(update))
-            except Exception as loop_error:
-                # Fallback: create new loop if there's any issue
-                logger.warning(f"Loop issue: {loop_error}, using fallback")
-                try:
-                    temp_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(temp_loop)
-                    temp_loop.run_until_complete(application.process_update(update))
-                    temp_loop.close()
-                except Exception as e:
-                    logger.error(f"Failed to process update: {e}")
+            loop.run_until_complete(application.process_update(update))
         except Exception as e:
             logger.error(f"Webhook error: {e}")
             import traceback
