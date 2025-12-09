@@ -1663,18 +1663,40 @@ def webhook():
                         # Add callback to log completion/errors
                         def on_complete(fut):
                             try:
+                                logger.info(f"🔔 Future callback called for update {update.update_id}")
                                 if fut.cancelled():
                                     logger.warning(f"⚠️ Update {update.update_id} was cancelled")
                                 elif fut.exception():
-                                    logger.error(f"❌ Error processing update {update.update_id}: {fut.exception()}")
+                                    exc = fut.exception()
+                                    logger.error(f"❌ Error processing update {update.update_id}: {exc}")
                                     import traceback
-                                    traceback.print_exc()
+                                    logger.error(traceback.format_exc())
                                 else:
-                                    logger.info(f"✅ Update {update.update_id} processed successfully")
+                                    result = fut.result(timeout=0.1)
+                                    logger.info(f"✅ Update {update.update_id} processed successfully, result: {result}")
                             except Exception as e:
-                                logger.error(f"Error in future callback: {e}")
+                                logger.error(f"❌ Error in future callback for update {update.update_id}: {e}")
+                                import traceback
+                                logger.error(traceback.format_exc())
                         
                         future.add_done_callback(on_complete)
+                        
+                        # Also check status after 5 seconds as backup
+                        def check_status():
+                            try:
+                                if future.done():
+                                    logger.info(f"✅ Future for update {update.update_id} is done (check_status)")
+                                    if future.exception():
+                                        logger.error(f"❌ Exception in future for update {update.update_id}: {future.exception()}")
+                                    else:
+                                        logger.info(f"✅ Update {update.update_id} completed (check_status)")
+                                else:
+                                    logger.warning(f"⚠️ Update {update.update_id} still not done after 5 seconds")
+                            except Exception as e:
+                                logger.error(f"Error in check_status for update {update.update_id}: {e}")
+                        
+                        import threading
+                        threading.Timer(5.0, check_status).start()
                     except Exception as e:
                         logger.error(f"Error scheduling update to bot loop: {e}")
                         import traceback
