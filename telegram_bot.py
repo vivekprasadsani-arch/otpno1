@@ -664,57 +664,69 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"User {user_id} status: {status}")
         
         if status == 'approved':
-        # Show service menu with ReplyKeyboardMarkup
-        keyboard = [
-            [KeyboardButton("💬 WhatsApp"), KeyboardButton("👥 Facebook")],
-            [KeyboardButton("✈️ Telegram")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-        try:
-            await update.message.reply_text(
-                "✅ Welcome! Please select a service:",
-                reply_markup=reply_markup,
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30
-            )
-        except Exception as e:
-            logger.error(f"Error sending welcome message: {e}")
-    elif status == 'rejected':
-        await update.message.reply_text("❌ Your access has been rejected. Please contact admin.")
-    else:
-        # Notify admin
-        try:
-            admin_message = f"🆕 New user request:\n\n"
-            admin_message += f"User ID: {user_id}\n"
-            admin_message += f"Username: @{username}\n"
-            admin_message += f"Name: {user.first_name or 'N/A'}"
-            
+            # Show service menu with ReplyKeyboardMarkup
             keyboard = [
-                [
-                    InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}"),
-                    InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}")
-                ]
+                [KeyboardButton("💬 WhatsApp"), KeyboardButton("👥 Facebook")],
+                [KeyboardButton("✈️ Telegram")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             try:
-                await context.bot.send_message(
-                    chat_id=ADMIN_USER_ID,
-                    text=admin_message,
+                await update.message.reply_text(
+                    "✅ Welcome! Please select a service:",
                     reply_markup=reply_markup,
                     read_timeout=30,
                     write_timeout=30,
                     connect_timeout=30
                 )
-            except Exception as send_error:
-                logger.error(f"Error sending admin notification: {send_error}")
-        except Exception as e:
-            logger.error(f"Error notifying admin: {e}")
-        
-        await update.message.reply_text(
-            "⏳ Your request has been sent to admin. Please wait for approval."
-        )
+                logger.info(f"✅ Welcome message sent to user {user_id}")
+            except Exception as e:
+                logger.error(f"Error sending welcome message: {e}")
+        elif status == 'rejected':
+            await update.message.reply_text("❌ Your access has been rejected. Please contact admin.")
+            logger.info(f"✅ Rejection message sent to user {user_id}")
+        else:
+            # Notify admin
+            logger.info(f"User {user_id} is pending approval, notifying admin...")
+            try:
+                admin_message = f"🆕 New user request:\n\n"
+                admin_message += f"User ID: {user_id}\n"
+                admin_message += f"Username: @{username}\n"
+                admin_message += f"Name: {user.first_name or 'N/A'}"
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}"),
+                        InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                try:
+                    await context.bot.send_message(
+                        chat_id=ADMIN_USER_ID,
+                        text=admin_message,
+                        reply_markup=reply_markup,
+                        read_timeout=30,
+                        write_timeout=30,
+                        connect_timeout=30
+                    )
+                except Exception as send_error:
+                    logger.error(f"Error sending admin notification: {send_error}")
+            except Exception as e:
+                logger.error(f"Error notifying admin: {e}")
+            
+            await update.message.reply_text(
+                "⏳ Your request has been sent to admin. Please wait for approval."
+            )
+            logger.info(f"✅ Pending message sent to user {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Error in start handler: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            await update.message.reply_text("❌ An error occurred. Please try again later.")
+        except:
+            pass
 
 async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin commands"""
