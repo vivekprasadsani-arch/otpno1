@@ -662,8 +662,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         status = get_user_status(user_id)
         logger.info(f"User {user_id} status: {status}")
-    
-    if status == 'approved':
+        
+        if status == 'approved':
         # Show service menu with ReplyKeyboardMarkup
         keyboard = [
             [KeyboardButton("💬 WhatsApp"), KeyboardButton("👥 Facebook")],
