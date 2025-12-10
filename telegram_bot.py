@@ -1544,7 +1544,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 update_user_session(user_id, service_name, country, range_id, numbers_str, 1)
                 
                 # Start monitoring all numbers in background
-                import time
                 job = context.job_queue.run_repeating(
                     monitor_otp,
                     interval=3,  # Increased to 3 seconds to prevent overlap
@@ -2215,12 +2214,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 old_job.schedule_removal()
             
             # Add country to job data if available
+            # Store start_time in variable first to avoid scope issues
+            start_time_value = time.time()
             job_data = {
                 'user_id': user_id,
                 'numbers': numbers_list,
                 'service': found_service,
                 'range_id': range_id,
-                'start_time': time.time()
+                'start_time': start_time_value
             }
             if country_name:
                 job_data['country'] = country_name
@@ -2234,8 +2235,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_jobs[user_id] = job
             
         except Exception as e:
-            logger.error(f"Error handling direct range input: {e}")
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            logger.error(f"Error handling direct range input: {e}", exc_info=True)
+            error_msg = str(e)
+            # Check if it's the time variable error
+            if "cannot access local variable 'time'" in error_msg:
+                error_msg = "Internal error occurred. Please try again."
+            await update.message.reply_text(f"❌ Error: {error_msg}")
     
     # Handle country selection (old format - for backward compatibility)
     elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text:
@@ -2359,7 +2364,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_user_session(user_id, service_name, country, range_id, numbers_str, 1)
             
             # Start monitoring all numbers in background
-            import time
             job = context.job_queue.run_repeating(
                 monitor_otp,
                 interval=2,
