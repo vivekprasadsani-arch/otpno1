@@ -11,6 +11,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 import logging
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from flask import Flask
 
 # Load environment variables
 load_dotenv()
@@ -2624,6 +2625,21 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Start the bot"""
+    # Start Flask app in a separate thread for Render port binding
+    port = int(os.getenv("PORT", 10000))
+    flask_app = Flask(__name__)
+    
+    @flask_app.route("/")
+    def health_check():
+        return "Bot is running", 200
+    
+    def run_flask():
+        flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info(f"Flask server started on port {port} for Render health checks")
+    
     # Initialize global API client (login will retry on first API call if needed)
     logger.info("Initializing global API client...")
     api_client = get_global_api_client()
