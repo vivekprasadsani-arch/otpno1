@@ -934,6 +934,31 @@ def sort_ranges_for_ivory_coast(ranges_list):
     sorted_ranges = sorted(ranges_list, key=get_sort_key)
     return sorted_ranges
 
+def mask_number(number):
+    """Mask number middle digits with XXXX (e.g., +1234567890 -> +1234XXXX90)"""
+    if not number:
+        return number
+    
+    # Remove + and spaces, keep only digits
+    digits = ''.join(filter(str.isdigit, number))
+    has_plus = number.startswith('+')
+    
+    if len(digits) < 6:
+        # Too short to mask, return as is
+        return number
+    
+    # Keep first 4 and last 2 digits, mask the middle
+    if len(digits) >= 6:
+        masked = digits[:4] + 'XXXX' + digits[-2:]
+    else:
+        masked = digits
+    
+    # Add + back if it was there
+    if has_plus:
+        masked = '+' + masked
+    
+    return masked
+
 def detect_language_from_sms(sms_content):
     """Detect language from SMS content"""
     if not sms_content:
