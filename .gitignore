@@ -7,7 +7,25 @@ __pycache__/
 env/
 venv/
 ENV/
+<<<<<<< HEAD
 .venv
+=======
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 # Database
 *.db
@@ -27,14 +45,25 @@ ENV/
 
 # Logs
 *.log
+<<<<<<< HEAD
+=======
+logs/
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 # OS
 .DS_Store
 Thumbs.db
 
+<<<<<<< HEAD
 # HAR files
 *.har
 
 # Local config
 config.local.py
 
+=======
+# Project specific
+bot_database.db
+*.har
+
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3

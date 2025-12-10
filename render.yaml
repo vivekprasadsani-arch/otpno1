@@ -2,21 +2,51 @@ services:
   - type: web
     name: telegram-otp-bot
     env: python
+<<<<<<< HEAD
     buildCommand: pip install -r requirements.txt
     startCommand: python telegram_bot.py
     envVars:
+=======
+    pythonVersion: "3.12.8"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot.py
+    envVars:
+      - key: PORT
+        value: $PORT
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: telegram-otp-bot
+          type: web
+          property: host
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
       - key: BOT_TOKEN
         sync: false
       - key: ADMIN_USER_ID
         sync: false
+<<<<<<< HEAD
       - key: OTP_CHANNEL_ID
         sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
+=======
+      - key: API_BASE_URL
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         sync: false
       - key: API_EMAIL
         sync: false
       - key: API_PASSWORD
         sync: false
+<<<<<<< HEAD
+=======
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: WEBHOOK_URL
+        fromService:
+          name: telegram-otp-bot
+          type: web
+          property: host
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 

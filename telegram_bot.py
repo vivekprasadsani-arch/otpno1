@@ -1,19 +1,34 @@
 import os
+<<<<<<< HEAD
 import threading
 import time
+=======
+import sys
+import threading
+import time
+import signal
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 from datetime import datetime
 import requests
 import json
 import re
+<<<<<<< HEAD
 import hashlib
+=======
+import asyncio
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import logging
 from supabase import create_client, Client
+<<<<<<< HEAD
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+=======
+from flask import Flask, request, Response
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 # Try to import cloudscraper for Cloudflare bypass
 try:
@@ -43,6 +58,7 @@ try:
 except ImportError:
     HAS_CLOUDSCRAPER = False
 
+<<<<<<< HEAD
 # Bot Configuration (from environment variables)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8348617982:AAGYXuOo6g8YNDTI079yf9nV0nf-zmFFHvA")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "7325836764"))
@@ -52,11 +68,22 @@ OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1002724043027"))  # Channel I
 BASE_URL = "https://v2.mnitnetwork.com"
 API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "47611858@Dove")
+=======
+# Bot Configuration
+BOT_TOKEN = "8354306480:AAEwHbjWU1Hyz_W6wTExyMZ_bVhSr-YwMfs"
+ADMIN_USER_ID = 7325836764
+
+# API Configuration (from otp_tool.py)
+BASE_URL = "https://v2.mnitnetwork.com"
+API_EMAIL = "roni791158@gmail.com"
+API_PASSWORD = "47611858@Dove"
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 # Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbm5xdmZvYWpxc2ZkeXVsb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzE1MjcsImV4cCI6MjA3OTc0NzUyN30.dFniV0odaT-7bjs5iQVFQ-N23oqTGMAgQKjswhaHSP4")
 
+<<<<<<< HEAD
 # Supabase Database setup
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -74,6 +101,25 @@ init_database()
 
 # Global locks for thread safety
 db_lock = threading.Lock()
+=======
+# ==================== SUPABASE CLIENT ====================
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def init_database():
+    """Initialize Supabase client (already done above, this is for compatibility)"""
+    try:
+        # Test connection - use telegram_user_id as per working bot schema
+        supabase.table('users').select('telegram_user_id').limit(1).execute()
+        logger.info("✅ Supabase client initialized successfully")
+    except Exception as e:
+        logger.error(f"Error testing Supabase connection: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
+
+# Global locks for thread safety
+# Database will be initialized on first use to avoid blocking startup
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 user_jobs = {}  # Store monitoring jobs per user
 
 # Global API client - single session for all users
@@ -105,6 +151,7 @@ def refresh_global_token():
 def get_user_status(user_id):
     """Get user approval status from database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             result = supabase.table('users').select('status').eq('user_id', user_id).execute()
             if result.data and len(result.data) > 0:
@@ -113,10 +160,23 @@ def get_user_status(user_id):
     except Exception as e:
         logger.error(f"Error getting user status: {e}")
         return None
+=======
+        result = supabase.table('users').select('status').eq('telegram_user_id', user_id).execute()
+        if result.data and len(result.data) > 0:
+            return result.data[0]['status']
+        # If user not found in database, return 'pending' (not None)
+        # This ensures new users are blocked until approved
+        return 'pending'
+    except Exception as e:
+        logger.error(f"Error in get_user_status: {e}")
+        # On error, default to 'pending' for security
+        return 'pending'
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 def add_user(user_id, username):
     """Add new user to database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             supabase.table('users').upsert({
                 'user_id': user_id,
@@ -125,10 +185,24 @@ def add_user(user_id, username):
             }).execute()
     except Exception as e:
         logger.error(f"Error adding user: {e}")
+=======
+        # Check if user exists first
+        existing = supabase.table('users').select('telegram_user_id').eq('telegram_user_id', user_id).execute()
+        if not existing.data:
+            new_user = {
+                'telegram_user_id': user_id,
+                'username': username,
+                'status': 'pending'
+            }
+            supabase.table('users').insert(new_user).execute()
+    except Exception as e:
+        logger.error(f"Error in add_user: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 def approve_user(user_id):
     """Approve user in database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             supabase.table('users').update({
                 'status': 'approved',
@@ -136,49 +210,91 @@ def approve_user(user_id):
             }).eq('user_id', user_id).execute()
     except Exception as e:
         logger.error(f"Error approving user: {e}")
+=======
+        update_data = {
+            'status': 'approved',
+            'approved_at': datetime.now().isoformat()
+        }
+        supabase.table('users').update(update_data).eq('telegram_user_id', user_id).execute()
+    except Exception as e:
+        logger.error(f"Error in approve_user: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 def reject_user(user_id):
     """Reject user in database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             supabase.table('users').update({
                 'status': 'rejected'
             }).eq('user_id', user_id).execute()
     except Exception as e:
         logger.error(f"Error rejecting user: {e}")
+=======
+        supabase.table('users').update({'status': 'rejected'}).eq('telegram_user_id', user_id).execute()
+    except Exception as e:
+        logger.error(f"Error in reject_user: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 def remove_user(user_id):
     """Remove user from database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             supabase.table('users').delete().eq('user_id', user_id).execute()
             supabase.table('user_sessions').delete().eq('user_id', user_id).execute()
     except Exception as e:
         logger.error(f"Error removing user: {e}")
+=======
+        # Delete from user_sessions first (due to foreign key) - but check if table exists
+        try:
+            supabase.table('user_sessions').delete().eq('user_id', user_id).execute()
+        except:
+            pass  # Table might not exist, skip
+        # Then delete from users
+        supabase.table('users').delete().eq('telegram_user_id', user_id).execute()
+    except Exception as e:
+        logger.error(f"Error in remove_user: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 def get_pending_users():
     """Get list of pending users"""
     try:
+<<<<<<< HEAD
         with db_lock:
             result = supabase.table('users').select('user_id, username').eq('status', 'pending').execute()
             return [(row['user_id'], row['username']) for row in result.data] if result.data else []
     except Exception as e:
         logger.error(f"Error getting pending users: {e}")
+=======
+        result = supabase.table('users').select('telegram_user_id, username').eq('status', 'pending').execute()
+        return [(user['telegram_user_id'], user['username']) for user in result.data] if result.data else []
+    except Exception as e:
+        logger.error(f"Error in get_pending_users: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         return []
 
 def get_all_users():
     """Get all users"""
     try:
+<<<<<<< HEAD
         with db_lock:
             result = supabase.table('users').select('user_id, username, status').execute()
             return [(row['user_id'], row['username'], row['status']) for row in result.data] if result.data else []
     except Exception as e:
         logger.error(f"Error getting all users: {e}")
+=======
+        result = supabase.table('users').select('telegram_user_id, username, status').execute()
+        return [(user['telegram_user_id'], user['username'], user['status']) for user in result.data] if result.data else []
+    except Exception as e:
+        logger.error(f"Error in get_all_users: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         return []
 
 def update_user_session(user_id, service=None, country=None, range_id=None, number=None, monitoring=0):
     """Update user session in database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             supabase.table('user_sessions').upsert({
                 'user_id': user_id,
@@ -191,10 +307,19 @@ def update_user_session(user_id, service=None, country=None, range_id=None, numb
             }).execute()
     except Exception as e:
         logger.error(f"Error updating user session: {e}")
+=======
+        # For now, user_sessions table might not exist in Supabase
+        # We can skip this or use bot_sessions like working bot
+        # For simplicity, we'll skip session storage for now since it's optional
+        pass
+    except Exception as e:
+        logger.error(f"Error in update_user_session: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 def get_user_session(user_id):
     """Get user session from database"""
     try:
+<<<<<<< HEAD
         with db_lock:
             result = supabase.table('user_sessions').select('*').eq('user_id', user_id).execute()
             if result.data and len(result.data) > 0:
@@ -210,6 +335,13 @@ def get_user_session(user_id):
         return None
     except Exception as e:
         logger.error(f"Error getting user session: {e}")
+=======
+        # For now, user_sessions table might not exist in Supabase
+        # Return None - session info will be stored in memory instead
+        return None
+    except Exception as e:
+        logger.error(f"Error in get_user_session: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         return None
 
 # API Functions (from otp_tool.py)
@@ -265,6 +397,7 @@ class APIClient:
             
             if login_resp.status_code in [200, 201]:
                 login_data = login_resp.json()
+<<<<<<< HEAD
                 
                 # Check if response has expected structure
                 if not login_data or 'data' not in login_data or not login_data.get('data'):
@@ -275,6 +408,8 @@ class APIClient:
                     logger.error(f"Login response missing user session: {login_data}")
                     return False
                 
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                 session_token = login_data['data']['user']['session']
                 
                 # Set session cookie properly
@@ -307,6 +442,7 @@ class APIClient:
                 
                 if hitauth_resp.status_code in [200, 201]:
                     hitauth_data = hitauth_resp.json()
+<<<<<<< HEAD
                     
                     # Check if hitauth response has expected structure
                     if not hitauth_data or 'data' not in hitauth_data or not hitauth_data.get('data'):
@@ -317,6 +453,8 @@ class APIClient:
                         logger.error(f"Hitauth response missing token: {hitauth_data}")
                         return False
                     
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                     self.auth_token = hitauth_data['data']['token']
                     
                     # Set account type cookie
@@ -327,10 +465,14 @@ class APIClient:
                     
                     logger.info("Login successful")
                     return True
+<<<<<<< HEAD
                 else:
                     logger.error(f"Hitauth failed with status {hitauth_resp.status_code}: {hitauth_resp.text[:200]}")
             else:
                 logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
+=======
+            logger.error(f"Login failed with status {login_resp.status_code}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             return False
         except Exception as e:
             logger.error(f"Login error: {e}")
@@ -421,6 +563,7 @@ class APIClient:
             logger.error(f"Error getting number: {e}")
             return None
     
+<<<<<<< HEAD
     def get_multiple_numbers(self, range_id, range_name=None, count=5):
         """Request multiple numbers from a range - try range_name first, then range_id (like otp_tool.py)"""
         numbers = []
@@ -444,6 +587,10 @@ class APIClient:
     
     def check_otp(self, number):
         """Check for OTP on a number - optimized for speed"""
+=======
+    def check_otp(self, number):
+        """Check for OTP on a number"""
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         try:
             if not self.auth_token:
                 if not self.login():
@@ -458,6 +605,7 @@ class APIClient:
             headers["Origin"] = self.base_url
             headers["Referer"] = f"{self.base_url}/dashboard/getnum"
             
+<<<<<<< HEAD
             # Reduced timeout for faster response
             resp = self.session.get(
                 f"{self.base_url}/api/v1/mnitnetworkcom/dashboard/getnuminfo?_date={today}&_page=1&_={timestamp}&mhitauth={self.auth_token}",
@@ -477,6 +625,24 @@ class APIClient:
                     )
                 else:
                     return None  # Login failed, return None
+=======
+            resp = self.session.get(
+                f"{self.base_url}/api/v1/mnitnetworkcom/dashboard/getnuminfo?_date={today}&_page=1&_={timestamp}&mhitauth={self.auth_token}",
+                headers=headers,
+                timeout=15
+            )
+            
+            # Check if token expired
+            if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
+                logger.info("Token expired in check_otp, refreshing...")
+                if self.login():
+                    # Retry request
+                    resp = self.session.get(
+                        f"{self.base_url}/api/v1/mnitnetworkcom/dashboard/getnuminfo?_date={today}&_page=1&_={timestamp}&mhitauth={self.auth_token}",
+                        headers=headers,
+                        timeout=15
+                    )
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             
             if resp.status_code == 200:
                 data = resp.json()
@@ -486,18 +652,32 @@ class APIClient:
                         numbers = data_obj['num']
                         if isinstance(numbers, list):
                             target_normalized = number.replace('+', '').replace(' ', '').replace('-', '').strip()
+<<<<<<< HEAD
                             target_digits = ''.join(filter(str.isdigit, target_normalized))
                             
                             # Optimized search - check exact match and last 9 digits in one pass
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                             for num_data in numbers:
                                 if isinstance(num_data, dict):
                                     num_value = num_data.get('number', '')
                                     num_normalized = num_value.replace('+', '').replace(' ', '').replace('-', '').strip()
+<<<<<<< HEAD
                                     # Exact match
                                     if num_normalized == target_normalized:
                                         return num_data
                                     # Last 9 digits match
                                     if len(target_digits) >= 9:
+=======
+                                    if num_normalized == target_normalized:
+                                        return num_data
+                            
+                            target_digits = ''.join(filter(str.isdigit, target_normalized))
+                            if len(target_digits) >= 9:
+                                for num_data in numbers:
+                                    if isinstance(num_data, dict):
+                                        num_value = num_data.get('number', '')
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                                         num_digits = ''.join(filter(str.isdigit, num_value))
                                         if len(num_digits) >= 9 and num_digits[-9:] == target_digits[-9:]:
                                             return num_data
@@ -505,6 +685,7 @@ class APIClient:
         except Exception as e:
             logger.error(f"Error checking OTP: {e}")
             return None
+<<<<<<< HEAD
     
     def check_otp_batch(self, numbers):
         """Check OTP for multiple numbers in one API call - much faster"""
@@ -583,6 +764,8 @@ class APIClient:
         except Exception as e:
             logger.error(f"Error checking OTP batch: {e}")
             return {}
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 # Global API client - single session for all users
 global_api_client = None
@@ -784,6 +967,7 @@ def get_country_flag(country_name):
     
     return '🌍'
 
+<<<<<<< HEAD
 # Country to ISO country code mapping (for #DK format)
 COUNTRY_TO_ISO = {
     'Denmark': 'DK', 'USA': 'US', 'UK': 'GB', 'India': 'IN', 'Bangladesh': 'BD',
@@ -1181,6 +1365,90 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⏳ Your request has been sent to admin. Please wait for approval."
         )
+=======
+# Bot Handlers
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start command"""
+    try:
+        logger.info(f"📥 /start command received from user {update.effective_user.id if update.effective_user else 'unknown'}")
+        user = update.effective_user
+        user_id = user.id
+        username = user.username or user.first_name or "Unknown"
+        
+        logger.info(f"Processing /start for user {user_id} ({username})")
+        
+        # Add user to database
+        add_user(user_id, username)
+        logger.info(f"✅ User {user_id} added to database")
+        
+        status = get_user_status(user_id)
+        logger.info(f"User {user_id} status: {status}")
+        
+        if status == 'approved':
+            # Show service menu with ReplyKeyboardMarkup
+            keyboard = [
+                [KeyboardButton("💬 WhatsApp"), KeyboardButton("👥 Facebook")],
+                [KeyboardButton("✈️ Telegram")]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+            try:
+                await update.message.reply_text(
+                    "✅ Welcome! Please select a service:",
+                    reply_markup=reply_markup,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30
+                )
+                logger.info(f"✅ Welcome message sent to user {user_id}")
+            except Exception as e:
+                logger.error(f"Error sending welcome message: {e}")
+        elif status == 'rejected':
+            await update.message.reply_text("❌ Your access has been rejected. Please contact admin.")
+            logger.info(f"✅ Rejection message sent to user {user_id}")
+        else:
+            # Notify admin
+            logger.info(f"User {user_id} is pending approval, notifying admin...")
+            try:
+                admin_message = f"🆕 New user request:\n\n"
+                admin_message += f"User ID: {user_id}\n"
+                admin_message += f"Username: @{username}\n"
+                admin_message += f"Name: {user.first_name or 'N/A'}"
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}"),
+                        InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                try:
+                    await context.bot.send_message(
+                        chat_id=ADMIN_USER_ID,
+                        text=admin_message,
+                        reply_markup=reply_markup,
+                        read_timeout=30,
+                        write_timeout=30,
+                        connect_timeout=30
+                    )
+                except Exception as send_error:
+                    logger.error(f"Error sending admin notification: {send_error}")
+            except Exception as e:
+                logger.error(f"Error notifying admin: {e}")
+            
+            await update.message.reply_text(
+                "⏳ Your request has been sent to admin. Please wait for approval."
+            )
+            logger.info(f"✅ Pending message sent to user {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Error in start handler: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            await update.message.reply_text("❌ An error occurred. Please try again later.")
+        except:
+            pass
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin commands"""
@@ -1237,12 +1505,16 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
+<<<<<<< HEAD
     # Answer callback immediately to prevent timeout - with error handling
     try:
         await query.answer()
     except Exception as e:
         # Query might be too old, continue anyway
         logger.debug(f"Callback query answer failed (might be old): {e}")
+=======
+    await query.answer()
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
     
     data = query.data
     user_id = query.from_user.id
@@ -1287,6 +1559,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Service selection
     if data.startswith("service_"):
         service_name = data.split("_")[1]
+<<<<<<< HEAD
+=======
+        service_map = {
+            "whatsapp": "verifyed-access-whatsapp",
+            "facebook": "verifyed-access-facebook",
+            "telegram": "verifyed-access-telegram"
+        }
+        
+        app_id = service_map.get(service_name)
+        if not app_id:
+            await query.edit_message_text("❌ Invalid service.")
+            return
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         
         # Get global API client
         api_client = get_global_api_client()
@@ -1294,6 +1579,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ API connection error. Please try again.")
             return
         
+<<<<<<< HEAD
         # Handle "others" - get ranges from all services except WhatsApp and Facebook
         if service_name == "others":
             # List of all service app_ids except WhatsApp and Facebook
@@ -1338,6 +1624,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not ranges:
                 await query.edit_message_text(f"❌ No active ranges available for {service_name}.")
                 return
+=======
+        with api_lock:
+            ranges = api_client.get_ranges(app_id)
+        
+        if not ranges:
+            await query.edit_message_text(f"❌ No active ranges available for {service_name}.")
+            return
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         
         # Group ranges by country - detect from range name if country not available
         country_ranges = {}
@@ -1398,11 +1692,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
     
+<<<<<<< HEAD
     # Note: num_copy_ handler removed - using copy_text parameter in InlineKeyboardButton
     # When copy_text is used, button click directly copies text without callback
     
     # Country selection
     elif data.startswith("country_"):
+=======
+    # Country selection
+    elif data.startswith("country_"):
+        # Re-check approval status for security
+        status = get_user_status(user_id)
+        if status != 'approved':
+            await query.edit_message_text("❌ Your access is pending approval.")
+            return
+        
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         parts = data.split("_", 2)
         service_name = parts[1]
         country = parts[2]
@@ -1433,6 +1738,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with api_lock:
             ranges = api_client.get_ranges(app_id)
         
+<<<<<<< HEAD
         # Find ranges for this country - collect all matching ranges first
         # Match by detecting country from range name, not just API country field
         matching_ranges = []
@@ -1468,12 +1774,42 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             selected_range = matching_ranges[0]  # Use first (priority) range
         else:
             selected_range = None
+=======
+        # Find ranges for this country (use first range)
+        # Match by detecting country from range name, not just API country field
+        selected_range = None
+        for r in ranges:
+            range_name = r.get('name', r.get('id', ''))
+            r_country_api = r.get('cantryName', r.get('country', ''))
+            
+            # Try API country first (case-insensitive)
+            if r_country_api and r_country_api.lower() == country.lower():
+                selected_range = r
+                break
+            
+            # Detect country from range name
+            r_country_detected = detect_country_from_range(range_name)
+            if r_country_detected and r_country_detected.lower() == country.lower():
+                selected_range = r
+                break
+            
+            # Also try more aggressive detection if needed
+            if not r_country_detected or r_country_detected == 'Unknown':
+                range_str = str(range_name).upper()
+                for code, country_name in COUNTRY_CODES.items():
+                    if code in range_str and country_name.lower() == country.lower():
+                        selected_range = r
+                        break
+                if selected_range:
+                    break
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         
         if not selected_range:
             await query.edit_message_text(f"❌ No ranges found for {country}.")
             return
         
         range_id = selected_range.get('name', selected_range.get('id', ''))
+<<<<<<< HEAD
         range_name = selected_range.get('name', '')
         
         # Show loading message and acknowledge callback immediately
@@ -1923,14 +2259,87 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📋 Select service to view ranges:",
             reply_markup=reply_markup
+=======
+        
+        # Request number
+        await query.edit_message_text("⏳ Requesting number...")
+        
+        with api_lock:
+            number_data = api_client.get_number(range_id)
+        
+        if not number_data:
+            await query.edit_message_text("❌ Failed to get number. Please try again.")
+            return
+        
+        number = number_data.get('number', 'N/A')
+        country_name = number_data.get('cantryName', number_data.get('country', country))
+        
+        # Update session
+        update_user_session(user_id, service_name, country, range_id, number, 1)
+        
+        # Start monitoring in background (5 minutes timeout = 150 checks at 2s interval)
+        import time
+        # Check if job_queue is available - try context first, then application
+        job_queue = context.job_queue
+        if job_queue is None:
+            global application
+            if application and application.job_queue:
+                job_queue = application.job_queue
+                logger.info(f"Using application.job_queue for user {user_id} (callback)")
+            else:
+                logger.error(f"JobQueue not available for user {user_id}. Context: {context.job_queue}, Application: {application.job_queue if application else 'None'}")
+                await query.edit_message_text("❌ Error: JobQueue not initialized. Please contact admin.")
+                return
+        
+        job = job_queue.run_repeating(
+            monitor_otp,
+            interval=2,
+            first=2,
+            chat_id=user_id,
+            data={'number': number, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time()}
+        )
+        user_jobs[user_id] = job  # Store job reference
+        logger.info(f"✅ Started OTP monitoring job for user {user_id}, number {number} (callback), job_queue: {job_queue}, job: {job}")
+        
+        # Make number clickable - ensure it has + prefix for Telegram auto-detection
+        display_number = number
+        if not display_number.startswith('+'):
+            digits_only = ''.join(filter(str.isdigit, display_number))
+            if len(digits_only) >= 10:
+                display_number = '+' + digits_only
+        
+        keyboard = [[InlineKeyboardButton("🔄 Change Number", callback_data=f"country_{service_name}_{country}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"✅ Number received!\n\n"
+            f"📱 Number: <code>{display_number}</code>\n"
+            f"🌍 Country: {country_name}\n"
+            f"⏳ Monitoring for OTP...",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         )
     
     # Back to services
     elif data == "back_services":
+<<<<<<< HEAD
         keyboard = [
             [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp")],
             [InlineKeyboardButton("Facebook", callback_data="service_facebook")],
             [InlineKeyboardButton("Telegram", callback_data="service_telegram")]
+=======
+        # Re-check approval status for security
+        status = get_user_status(user_id)
+        if status != 'approved':
+            await query.edit_message_text("❌ Your access is pending approval.")
+            return
+        
+        keyboard = [
+            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
+            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")]
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -1949,6 +2358,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Your access is pending approval.")
         return
     
+<<<<<<< HEAD
     # Handle "Get Number" button
     if text == "Get Number":
         keyboard = [
@@ -1964,6 +2374,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle service selection (old format - for backward compatibility)
+=======
+    # Handle service selection
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
     if text in ["💬 WhatsApp", "👥 Facebook", "✈️ Telegram"]:
         service_map = {
             "💬 WhatsApp": "whatsapp",
@@ -2053,6 +2466,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error in handle_message service selection: {e}")
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
+<<<<<<< HEAD
     # Handle direct range input (e.g., "24491501XXX" or "24491501")
     elif re.match(r'^[\dXx]+$', text) and len(text) >= 6:
         # Looks like a range pattern - search across all services
@@ -2225,6 +2639,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             await update.message.reply_text(
                 "✅ Click 'Get Number' to start:",
+=======
+    # Handle country selection
+    elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text:
+        # Re-check approval status for security
+        status = get_user_status(user_id)
+        if status != 'approved':
+            await update.message.reply_text("❌ Your access is pending approval.")
+            return
+        
+        if text == "🔙 Back":
+            keyboard = [
+                [KeyboardButton("💬 WhatsApp"), KeyboardButton("👥 Facebook")],
+                [KeyboardButton("✈️ Telegram")]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+            await update.message.reply_text(
+                "✅ Please select a service:",
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                 reply_markup=reply_markup
             )
             return
@@ -2263,6 +2695,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with api_lock:
                 ranges = api_client.get_ranges(app_id)
             
+<<<<<<< HEAD
             # Find ranges for this country - collect all matching ranges first
             # Match by detecting country from range name, not just API country field
             matching_ranges = []
@@ -2298,12 +2731,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 selected_range = matching_ranges[0]  # Use first (priority) range
             else:
                 selected_range = None
+=======
+            # Find ranges for this country (use first range)
+            # Find ranges for this country (use first range)
+            # Match by detecting country from range name, not just API country field
+            selected_range = None
+            for r in ranges:
+                range_name = r.get('name', r.get('id', ''))
+                r_country_api = r.get('cantryName', r.get('country', ''))
+                
+                # Try API country first (case-insensitive)
+                if r_country_api and r_country_api.lower() == country.lower():
+                    selected_range = r
+                    break
+                
+                # Detect country from range name
+                r_country_detected = detect_country_from_range(range_name)
+                if r_country_detected and r_country_detected.lower() == country.lower():
+                    selected_range = r
+                    break
+                
+                # Also try more aggressive detection if needed
+                if not r_country_detected or r_country_detected == 'Unknown':
+                    range_str = str(range_name).upper()
+                    for code, country_name in COUNTRY_CODES.items():
+                        if code in range_str and country_name.lower() == country.lower():
+                            selected_range = r
+                            break
+                    if selected_range:
+                        break
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             
             if not selected_range:
                 await update.message.reply_text(f"❌ No ranges found for {country}.")
                 return
             
             range_id = selected_range.get('name', selected_range.get('id', ''))
+<<<<<<< HEAD
             range_name = selected_range.get('name', '')
             
             # Request 5 numbers
@@ -2340,10 +2804,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Start monitoring all numbers in background
             import time
             job = context.job_queue.run_repeating(
+=======
+            
+            # Request number
+            await update.message.reply_text("⏳ Requesting number...")
+            
+            with api_lock:
+                number_data = api_client.get_number(range_id)
+            
+            if not number_data:
+                await update.message.reply_text("❌ Failed to get number. Please try again.")
+                return
+            
+            number = number_data.get('number', 'N/A')
+            country_name = number_data.get('cantryName', number_data.get('country', country))
+            
+            # Update session
+            update_user_session(user_id, service_name, country_name, range_id, number, 1)
+            
+            # Start monitoring in background
+            import time
+            # Check if job_queue is available - try context.job_queue first, then application.job_queue
+            job_queue = context.job_queue
+            if job_queue is None:
+                # Fallback to application's job_queue
+                global application
+                if application and application.job_queue:
+                    job_queue = application.job_queue
+                    logger.info(f"Using application.job_queue for user {user_id}")
+                else:
+                    logger.error(f"JobQueue not available for user {user_id}. Context: {context.job_queue}, Application: {application.job_queue if application else 'None'}")
+                    await update.message.reply_text("❌ Error: JobQueue not initialized. Please contact admin.")
+                    return
+            
+            job = job_queue.run_repeating(
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                 monitor_otp,
                 interval=2,
                 first=2,
                 chat_id=user_id,
+<<<<<<< HEAD
                 data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time()}
             )
             user_jobs[user_id] = job
@@ -2383,6 +2883,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(
                 message,
+=======
+                data={'number': number, 'user_id': user_id, 'country': country_name, 'service': service_name, 'start_time': time.time()}
+            )
+            user_jobs[user_id] = job
+            logger.info(f"✅ Started OTP monitoring job for user {user_id}, number {number}")
+            
+            # Make number clickable - ensure it has + prefix for Telegram auto-detection
+            display_number = number
+            if not display_number.startswith('+'):
+                digits_only = ''.join(filter(str.isdigit, display_number))
+                if len(digits_only) >= 10:
+                    display_number = '+' + digits_only
+            
+            # Show "Change Number" button
+            session = get_user_session(user_id)
+            service_name = session.get('service') if session else 'whatsapp'
+            keyboard = [[InlineKeyboardButton("🔄 Change Number", callback_data=f"country_{service_name}_{country_name}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ Number received!\n\n"
+                f"📱 Number: <code>{display_number}</code>\n"
+                f"🌍 Country: {country_name}\n"
+                f"⏳ Monitoring for OTP...",
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
@@ -2391,6 +2916,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Error: {str(e)}")
 
 async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
+<<<<<<< HEAD
     """Monitor OTP in background for multiple numbers - continues until all numbers receive OTP"""
     job = context.job
     job_data = job.data if hasattr(job, 'data') else {}
@@ -2416,15 +2942,34 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
     
     # Timeout after 15 minutes
     if time.time() - start_time > 900:  # 15 minutes = 900 seconds
+=======
+    """Monitor OTP in background"""
+    job = context.job
+    user_id = job.chat_id
+    number = job.data['number']
+    start_time = job.data.get('start_time', time.time())
+    
+    # Debug: Log that monitoring is running
+    logger.info(f"🔍 Monitoring OTP for user {user_id}, number {number} (elapsed: {int(time.time() - start_time)}s)")
+    
+    # Timeout after 5 minutes
+    if time.time() - start_time > 300:
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         job.schedule_removal()
         if user_id in user_jobs:
             del user_jobs[user_id]
         update_user_session(user_id, monitoring=0)
         try:
+<<<<<<< HEAD
             numbers_str = ', '.join(numbers)
             await context.bot.send_message(
                 chat_id=user_id,
                 text=f"⏱️ Timeout! No OTP received for numbers within 15 minutes."
+=======
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"⏱️ Timeout! No OTP received for number {number} within 5 minutes."
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             )
         except:
             pass
@@ -2436,6 +2981,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
+<<<<<<< HEAD
         # Check OTP for all numbers in one batch call - much faster (no lag)
         # Use timeout to prevent hanging
         try:
@@ -2617,11 +3163,137 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         update_user_session(user_id, monitoring=0)
                         return
                     # Otherwise, continue monitoring for remaining numbers
+=======
+        with api_lock:
+            otp_data = api_client.check_otp(number)
+        
+        # Handle list response - EXACT same logic as otp_tool.py (lines 481-508)
+        if isinstance(otp_data, list):
+            # Find the specific number in the list - EXACT same matching logic
+            target_normalized = number.replace('+', '').replace(' ', '').replace('-', '').strip()
+            target_digits = ''.join(filter(str.isdigit, target_normalized))
+            
+            found_num_data = None
+            for num in otp_data:
+                if isinstance(num, dict):
+                    num_value = num.get('number', '')
+                    num_normalized = num_value.replace('+', '').replace(' ', '').replace('-', '').strip()
+                    # Try exact match first
+                    if num_normalized == target_normalized:
+                        found_num_data = num
+                        break
+                    # Try last 9 digits match
+                    elif len(target_digits) >= 9:
+                        num_digits = ''.join(filter(str.isdigit, num_value))
+                        if len(num_digits) >= 9 and num_digits[-9:] == target_digits[-9:]:
+                            found_num_data = num
+                            break
+            
+            if found_num_data:
+                otp_data = found_num_data
+            else:
+                # Number not found in list yet, continue waiting
+                return
+        
+        if otp_data and isinstance(otp_data, dict):
+            # Get OTP - EXACT SAME LOGIC AS otp_tool.py (lines 510-527)
+            # Get OTP - directly from 'otp' field first
+            otp_raw = otp_data.get('otp')
+            sms_content = otp_data.get('sms_content', '')
+            status = otp_data.get('status', '')
+            
+            # Convert OTP to string - Enhanced OTP extraction (multiple patterns)
+            otp = ''
+            if otp_raw is not None and otp_raw != '':
+                otp = str(otp_raw).strip()
+                logger.info(f"OTP from raw field for {number}: {otp}")
+            elif sms_content:
+                # Extract OTP from SMS content - try multiple patterns
+                # Pattern 1: 123-456 or 12345678 format (most common)
+                otp_match = re.search(r'(\d{3,6}-?\d{3,6})', sms_content)
+                if otp_match:
+                    otp = otp_match.group(1).replace('-', '').strip()
+                    logger.info(f"OTP extracted (pattern 1) for {number}: {otp}")
+                else:
+                    # Pattern 2: 4-8 digit standalone number
+                    otp_match = re.search(r'\b(\d{4,8})\b', sms_content)
+                    if otp_match:
+                        otp = otp_match.group(1).strip()
+                        logger.info(f"OTP extracted (pattern 2) for {number}: {otp}")
+                    else:
+                        # Pattern 3: Any 3+ digit sequence (last resort)
+                        otp_match = re.search(r'(\d{3,})', sms_content)
+                        if otp_match:
+                            potential_otp = otp_match.group(1).strip()
+                            # Filter out very long numbers (likely not OTP)
+                            if len(potential_otp) <= 8:
+                                otp = potential_otp
+                                logger.info(f"OTP extracted (pattern 3) for {number}: {otp}")
+            
+            # Additional debug logging
+            if otp:
+                logger.info(f"✅ OTP detected for {number}: {otp}")
+            elif sms_content:
+                logger.debug(f"⚠️ SMS content found but no OTP extracted: {sms_content[:100]}")
+            elif status:
+                logger.debug(f"Status: {status}, No OTP data yet for {number}")
+            
+            if otp:
+                # Stop monitoring
+                job.schedule_removal()
+                if user_id in user_jobs:
+                    del user_jobs[user_id]
+                update_user_session(user_id, monitoring=0)
+                
+                # Get country and service info from job data (most reliable) or session
+                job_data = job.data if hasattr(job, 'data') else {}
+                session = get_user_session(user_id)
+                
+                # Try to get country from job data first (most reliable), then session
+                country = job_data.get('country') if job_data else None
+                if not country and session:
+                    country = session.get('country')
+                
+                # Try to get service from job data first, then session
+                service = job_data.get('service') if job_data else None
+                if not service and session:
+                    service = session.get('service')
+                
+                # Handle None values
+                if not country:
+                    country = 'Unknown'
+                if not service:
+                    service = 'Unknown'
+                
+                # Make number clickable - ensure it has + prefix for Telegram auto-detection
+                display_number = number
+                if not display_number.startswith('+'):
+                    digits_only = ''.join(filter(str.isdigit, display_number))
+                    if len(digits_only) >= 10:
+                        display_number = '+' + digits_only
+                
+                # Format OTP message in new format
+                otp_msg = f"🔔 OTP Received\n\n"
+                otp_msg += f"📞 Number: {display_number}\n"
+                otp_msg += f"🔐 OTP: <code>{otp}</code>\n"
+                otp_msg += f"💬 Service: {service.upper()}"
+                
+                # Send OTP message
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=otp_msg,
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending OTP message: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
     except Exception as e:
         logger.error(f"Error monitoring OTP for user {user_id}: {e}")
         import traceback
         logger.error(traceback.format_exc())
 
+<<<<<<< HEAD
 def main():
     """Start the bot"""
     # Initialize global API client (login will retry on first API call if needed)
@@ -2629,22 +3301,273 @@ def main():
     api_client = get_global_api_client()
     if api_client:
         logger.info("✅ API client initialized (login will retry on first API call if needed)")
+=======
+# Global application instance
+application = None
+
+# Global event loop for webhook mode - used by background thread for JobQueue
+bot_event_loop = None
+bot_thread = None
+
+def get_bot_event_loop():
+    """Get the bot's event loop (running in background thread for JobQueue)"""
+    global bot_event_loop
+    return bot_event_loop
+
+def setup_webhook(render_url):
+    """Setup webhook for Telegram bot"""
+    webhook_url = f"{render_url}/webhook" if not render_url.endswith('/webhook') else render_url
+    
+    # Delete any existing webhook first
+    delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+    try:
+        requests.get(delete_url, timeout=5)
+        time.sleep(1)
+    except:
+        pass
+    
+    # Set new webhook
+    set_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+    response = requests.post(set_url, json={
+        'url': webhook_url,
+        'drop_pending_updates': True,
+        'allowed_updates': ['message', 'callback_query']
+    }, timeout=10)
+    
+    if response.status_code == 200:
+        logger.info(f"✅ Webhook set successfully: {webhook_url}")
+        return True
+    else:
+        logger.error(f"❌ Failed to set webhook: {response.text}")
+        return False
+
+def init_application_for_webhook():
+    """Initialize application for webhook mode (called when module is imported by Gunicorn)"""
+    global application, bot_event_loop, bot_thread
+    
+    # Only initialize if not already initialized
+    if application is not None:
+        return
+    
+    logger.info("🔄 Initializing application for webhook mode...")
     
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("rangechkr", rangechkr))
     application.add_handler(CommandHandler("users", admin_commands))
     application.add_handler(CommandHandler("remove", admin_commands))
     application.add_handler(CommandHandler("pending", admin_commands))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
+    logger.info("✅ Application created with handlers")
+    
+    # Initialize database
+    try:
+        init_database()
+        logger.info("✅ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database: {e}")
+        logger.warning("Bot will continue but database operations may fail")
+    
+    # Initialize global API client
+    logger.info("Initializing global API client...")
+    api_client = get_global_api_client()
+    if api_client:
+        logger.info("✅ API client initialized")
+    
+    # Get Render URL
+    render_url = os.environ.get('RENDER_EXTERNAL_URL', '')
+    if not render_url:
+        render_url = os.environ.get('WEBHOOK_URL', '')
+    
+    if render_url:
+        # Setup webhook
+        if setup_webhook(render_url):
+            # Create event loop for background thread (JobQueue needs continuous loop)
+            bot_event_loop = asyncio.new_event_loop()
+            
+            # Initialize and start application in background thread - JobQueue needs continuous loop
+            def run_bot():
+                global bot_event_loop
+                try:
+                    logger.info("🔄 Starting bot background thread...")
+                    # Set this loop as the thread's event loop
+                    asyncio.set_event_loop(bot_event_loop)
+                    logger.info("✅ Event loop set for background thread")
+                    
+                    # Initialize and start application
+                    logger.info("🔄 Initializing application...")
+                    bot_event_loop.run_until_complete(application.initialize())
+                    logger.info("✅ Application initialized")
+                    
+                    logger.info("🔄 Starting application...")
+                    bot_event_loop.run_until_complete(application.start())
+                    logger.info("✅ Application started for webhook mode")
+                    
+                    # Verify JobQueue is available
+                    if application.job_queue:
+                        logger.info("✅ JobQueue is available and running")
+                        logger.info(f"✅ JobQueue scheduler: {application.job_queue.scheduler}")
+                    else:
+                        logger.error("❌ JobQueue is NOT available - OTP monitoring will NOT work")
+                    
+                    # Keep event loop running for JobQueue
+                    logger.info("🔄 Event loop running forever for JobQueue...")
+                    bot_event_loop.run_forever()
+                except Exception as e:
+                    logger.error(f"❌ Error in bot thread: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Start bot in background thread so event loop keeps running for JobQueue
+            bot_thread = threading.Thread(target=run_bot, daemon=True)
+            bot_thread.start()
+            
+            # Give bot time to initialize
+            time.sleep(3)
+            logger.info("✅ Bot initialization complete for webhook mode")
+        else:
+            logger.error("❌ Failed to setup webhook")
+
+# ==================== FLASK APP (for Webhook) ====================
+flask_app = Flask(__name__)
+
+# Initialize application when module is imported (for Gunicorn)
+# Check if running on Render (has RENDER_EXTERNAL_URL)
+if os.environ.get('RENDER_EXTERNAL_URL') or os.environ.get('WEBHOOK_URL'):
+    init_application_for_webhook()
+
+@flask_app.route('/')
+def health_check():
+    """Health check endpoint for Render"""
+    return Response('OK - Bot is running', status=200)
+
+@flask_app.route('/webhook', methods=['POST'])
+def webhook():
+    """Handle incoming Telegram updates via webhook"""
+    global application
+    
+    if application is None:
+        logger.error("Application not initialized")
+        return Response('Internal Server Error', status=500)
+    
+    if request.method == 'POST':
+        try:
+            json_data = request.get_json(force=True)
+            update = Update.de_json(json_data, application.bot)
+            
+            if not update:
+                return Response('Invalid Update', status=400)
+            
+            # Log update details for debugging
+            update_type = "unknown"
+            if update.message:
+                update_type = f"message: {update.message.text[:50] if update.message.text else 'no text'}"
+            elif update.callback_query:
+                update_type = f"callback_query: {update.callback_query.data}"
+            logger.info(f"📨 Received update: {update_type}, update_id: {update.update_id}")
+            
+            # Process update directly in a new event loop (simpler and more reliable for webhook mode)
+            # This ensures the update is processed immediately without waiting for background loop
+            logger.info(f"🔄 Processing update {update.update_id} directly")
+            try:
+                # Create a new event loop for this update
+                temp_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(temp_loop)
+                
+                # Process the update
+                temp_loop.run_until_complete(application.process_update(update))
+                logger.info(f"✅ Update {update.update_id} processed successfully")
+                
+                temp_loop.close()
+            except Exception as e:
+                logger.error(f"❌ Error processing update {update.update_id}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                try:
+                    temp_loop.close()
+                except:
+                    pass
+        except Exception as e:
+            logger.error(f"Webhook error: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return Response('OK', status=200)
+    return Response('Method not allowed', status=405)
+
+def main():
+    """Start the bot - for local development (polling mode)"""
+    global application
+    
+    # Only run main() for local development (when no Render URL)
+    render_url = os.environ.get('RENDER_EXTERNAL_URL', '')
+    if not render_url:
+        render_url = os.environ.get('WEBHOOK_URL', '')
+    
+    if render_url:
+        # Webhook mode - already initialized by init_application_for_webhook()
+        logger.info("🌐 Running in WEBHOOK mode (Render) - already initialized")
+        logger.info("🚀 Flask app is ready for Gunicorn")
+        return
+    
+    # Local development - use polling (like backup bot)
+    logger.info("🔄 Running in POLLING mode (Local)")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
+    
+    # Create application
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+<<<<<<< HEAD
+    application.add_handler(CommandHandler("rangechkr", rangechkr))
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
+    application.add_handler(CommandHandler("users", admin_commands))
+    application.add_handler(CommandHandler("remove", admin_commands))
+    application.add_handler(CommandHandler("pending", admin_commands))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+<<<<<<< HEAD
     # Start bot
     logger.info("Bot starting...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+=======
+    logger.info("Bot starting...")
+    logger.info(f"Admin User ID: {ADMIN_USER_ID}")
+    
+    # Initialize database
+    try:
+        init_database()
+        logger.info("✅ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database: {e}")
+        logger.warning("Bot will continue but database operations may fail")
+    
+    # Initialize global API client
+    logger.info("Initializing global API client...")
+    api_client = get_global_api_client()
+    if api_client:
+        logger.info("✅ API client initialized")
+    
+    # Run in polling mode (EXACTLY like backup bot)
+    try:
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+        import traceback
+        traceback.print_exc()
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
 
 if __name__ == "__main__":
     main()

@@ -4,6 +4,7 @@ import time
 import re
 from datetime import datetime
 
+<<<<<<< HEAD
 # Try to import cloudscraper for Cloudflare bypass
 try:
     import cloudscraper
@@ -35,6 +36,12 @@ class OTPTool:
             self.use_curl = False
             print("Warning: No Cloudflare bypass available, using standard requests")
             print("Install curl_cffi for better Cloudflare bypass: pip install curl_cffi")
+=======
+class OTPTool:
+    def __init__(self):
+        self.base_url = "https://v2.mnitnetwork.com"
+        self.session = requests.Session()
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
         self.auth_token = None
         self.selected_number = None
         self.selected_range = None
@@ -74,6 +81,7 @@ class OTPTool:
             
             if login_resp.status_code in [200, 201]:
                 login_data = login_resp.json()
+<<<<<<< HEAD
                 
                 # Check if response has expected structure
                 if not login_data or 'data' not in login_data or not login_data.get('data'):
@@ -84,11 +92,14 @@ class OTPTool:
                     print(f"Login response missing user session: {login_data}")
                     return False
                 
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                 session_token = login_data['data']['user']['session']
                 
                 # Set session cookie properly
                 self.session.cookies.set('mnitnetworkcom_session', session_token, domain='v2.mnitnetwork.com')
                 
+<<<<<<< HEAD
                 # If using curl_cffi, minimal headers needed
                 if self.use_curl:
                     hitauth_headers = {
@@ -104,6 +115,15 @@ class OTPTool:
                         "Origin": self.browser_headers["Origin"],
                         "Referer": f"{self.base_url}/dashboard/getnum"
                     }
+=======
+                hitauth_headers = {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": self.browser_headers["User-Agent"],
+                    "Accept": self.browser_headers["Accept"],
+                    "Origin": self.browser_headers["Origin"],
+                    "Referer": f"{self.base_url}/dashboard/getnum"
+                }
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                 hitauth_resp = self.session.post(
                     f"{self.base_url}/api/v1/mnitnetworkcom/auth/hitauth",
                     data={
@@ -116,6 +136,7 @@ class OTPTool:
                 
                 if hitauth_resp.status_code in [200, 201]:
                     hitauth_data = hitauth_resp.json()
+<<<<<<< HEAD
                     
                     # Check if hitauth response has expected structure
                     if not hitauth_data or 'data' not in hitauth_data or not hitauth_data.get('data'):
@@ -126,6 +147,8 @@ class OTPTool:
                         print(f"Hitauth response missing token: {hitauth_data}")
                         return False
                     
+=======
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
                     self.auth_token = hitauth_data['data']['token']
                     
                     # Set account type cookie
@@ -135,6 +158,7 @@ class OTPTool:
                     self.session.cookies.set('mnitnetworkcom_mhitauth', self.auth_token, domain='v2.mnitnetwork.com')
                     
                     return True
+<<<<<<< HEAD
             else:
                 # Log non-200 status codes
                 try:
@@ -157,6 +181,11 @@ class OTPTool:
             print(f"Login error: {e}")
             import traceback
             print(traceback.format_exc())
+=======
+            return False
+        except Exception as e:
+            print(f"Login error: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             return False
     
     def refresh_token(self):
@@ -168,6 +197,7 @@ class OTPTool:
                 # If no session, need to login again
                 return self.login()
             
+<<<<<<< HEAD
             # If using curl_cffi, minimal headers needed
             if self.use_curl:
                 hitauth_headers = {
@@ -183,6 +213,15 @@ class OTPTool:
                     "Origin": self.browser_headers["Origin"],
                     "Referer": f"{self.base_url}/dashboard/getnum"
                 }
+=======
+            hitauth_headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": self.browser_headers["User-Agent"],
+                "Accept": self.browser_headers["Accept"],
+                "Origin": self.browser_headers["Origin"],
+                "Referer": f"{self.base_url}/dashboard/getnum"
+            }
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             
             hitauth_resp = self.session.post(
                 f"{self.base_url}/api/v1/mnitnetworkcom/auth/hitauth",
@@ -196,6 +235,7 @@ class OTPTool:
             
             if hitauth_resp.status_code in [200, 201]:
                 hitauth_data = hitauth_resp.json()
+<<<<<<< HEAD
                 
                 # Check if hitauth response has expected structure
                 if not hitauth_data or 'data' not in hitauth_data or not hitauth_data.get('data'):
@@ -231,6 +271,14 @@ class OTPTool:
             print(f"Token refresh error: {e}")
             import traceback
             print(traceback.format_exc())
+=======
+                self.auth_token = hitauth_data['data']['token']
+                self.session.cookies.set('mnitnetworkcom_mhitauth', self.auth_token, domain='v2.mnitnetwork.com')
+                return True
+            return False
+        except Exception as e:
+            print(f"Token refresh error: {e}")
+>>>>>>> 6262504419f048a0ff6b86dca2aca66cd3e031d3
             return False
     
     def _handle_token_expired(self):
