@@ -2591,11 +2591,19 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     # Detect language from SMS content
                     language = detect_language_from_sms(sms_content) if sms_content else 'English'
                     
-                    # Format OTP message: "🇩🇰 #DK WhatsApp 4540797881 English"
-                    otp_msg = f"{country_flag} #{country_code} {service.capitalize()} {display_number} {language}"
+                    # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
+                    # Use <code> tag for click-to-copy (Telegram default format)
+                    user_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}"
+                    
+                    # Format OTP message for CHANNEL: "🇩🇰 #DK WhatsApp 4540XXXX81 English"
+                    # Mask number for channel (middle digits with XXXX)
+                    masked_number = mask_number(number)
+                    if masked_number.startswith('+'):
+                        masked_number = masked_number[1:]  # Remove + for display
+                    channel_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} {masked_number} {language}"
                     
                     # Create inline keyboard with OTP copy button
-                    keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]] 
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     # Send OTP message to user FIRST (important!)
@@ -2604,7 +2612,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         logger.info(f"Attempting to send OTP to user {user_id} for number {number}: {otp}")
                         sent_msg = await context.bot.send_message(
                             chat_id=user_id,
-                            text=otp_msg,
+                            text=user_otp_msg,
                             reply_markup=reply_markup,
                             parse_mode='HTML'
                         )
@@ -2612,14 +2620,14 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         logger.info(f"✅ OTP message sent successfully to user {user_id} (message_id: {sent_msg.message_id}) for {number}: {otp}")
                     except Exception as e:
                         logger.error(f"❌ Error sending OTP message to user {user_id}: {type(e).__name__}: {e}")
-                        logger.error(f"   OTP was: {otp}, Number: {number}, Message: {otp_msg}")
+                        logger.error(f"   OTP was: {otp}, Number: {number}, Message: {user_otp_msg}")
                         # Still try to send to channel even if user message fails
                     
-                    # Send OTP message to channel
+                    # Send OTP message to channel (with masked number)
                     try:
                         await context.bot.send_message(
                             chat_id=OTP_CHANNEL_ID,
-                            text=otp_msg,
+                            text=channel_otp_msg,
                             reply_markup=reply_markup,
                             parse_mode='HTML'
                         )
