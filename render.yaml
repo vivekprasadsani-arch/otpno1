@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: telegram-otp-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_USER_ID
+        sync: false
+      - key: OTP_CHANNEL_ID
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: API_EMAIL
+        sync: false
+      - key: API_PASSWORD
+        sync: false
+
