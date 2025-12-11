@@ -190,12 +190,12 @@ def get_all_users():
         logger.error(f"Error getting all users: {e}")
         return []
 
-def update_user_session(user_id, service=None, country=None, range_id=None, number=None, monitoring=0):
+def update_user_session(user_id, service=None, country=None, range_id=None, number=None, monitoring=0, number_count=None):
     """Update user session in database"""
     try:
         with db_lock:
             # Use integer user_id (BIGINT in database)
-            supabase.table('user_sessions').upsert({
+            data = {
                 'user_id': int(user_id),
                 'selected_service': service,
                 'selected_country': country,
@@ -203,7 +203,11 @@ def update_user_session(user_id, service=None, country=None, range_id=None, numb
                 'number': number,
                 'monitoring': monitoring,
                 'last_check': datetime.now().isoformat()
-            }).execute()
+            }
+            # Only update number_count if provided
+            if number_count is not None:
+                data['number_count'] = number_count
+            supabase.table('user_sessions').upsert(data).execute()
     except Exception as e:
         logger.error(f"Error updating user session: {e}")
 
@@ -221,12 +225,13 @@ def get_user_session(user_id):
                     'country': row.get('selected_country'),
                     'range_id': row.get('range_id'),
                     'number': row.get('number'),
-                    'monitoring': row.get('monitoring', 0)
+                    'monitoring': row.get('monitoring', 0),
+                    'number_count': row.get('number_count', 5)  # Default to 5 if not set
                 }
-        return None
+        return {'number_count': 5}  # Return default if no session exists
     except Exception as e:
         logger.error(f"Error getting user session: {e}")
-        return None
+        return {'number_count': 5}  # Return default on error
 
 # API Functions (from otp_tool.py)
 class APIClient:
@@ -1189,13 +1194,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = get_user_status(user_id)
     
     if status == 'approved':
-        # Show only "Get Number" button
+        # Get current number count setting
+        session = get_user_session(user_id)
+        current_count = session.get('number_count', 5) if session else 5
+        
+        # Show "Get Number" and "Set Number Count" buttons
         keyboard = [
-            [KeyboardButton("Get Number")]
+            [KeyboardButton("Get Number")],
+            [KeyboardButton("Set Number Count")]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         await update.message.reply_text(
-            "✅ Welcome! Click 'Get Number' to start:",
+            f"✅ Welcome! Click 'Get Number' to start:\n\n"
+            f"📊 Current number count: {current_count}",
             reply_markup=reply_markup
         )
     elif status == 'rejected':
@@ -1529,12 +1540,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.debug(f"Callback query answer failed (might be old): {e}")
         
-        # Request 5 numbers in background (async task)
+        # Request numbers in background (async task) - use user's preference
         async def fetch_and_send_numbers():
             try:
+                # Get user's number count preference
+                session = get_user_session(user_id)
+                number_count = session.get('number_count', 5) if session else 5
+                
                 with api_lock:
                     # Try range_name first, then range_id (like otp_tool.py)
-                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, 5)
+                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
@@ -1808,10 +1823,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return
                 
+                # Get user's number count preference
+                session = get_user_session(user_id)
+                number_count = session.get('number_count', 5) if session else 5
+                
                 with api_lock:
-                    logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count=5")
+                    logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
                     # Try range_name first, then range_id (like otp_tool.py)
-                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, 5)
+                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
                     logger.info(f"get_multiple_numbers returned: {numbers_data}")
                 
                 if not numbers_data or len(numbers_data) == 0:
@@ -2008,6 +2027,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Handle "Set Number Count" button
+    if text == "Set Number Count":
+        # Get current count
+        session = get_user_session(user_id)
+        current_count = session.get('number_count', 5) if session else 5
+        
+        keyboard = [
+            [InlineKeyboardButton("1", callback_data="set_count_1"),
+             InlineKeyboardButton("2", callback_data="set_count_2"),
+             InlineKeyboardButton("3", callback_data="set_count_3")],
+            [InlineKeyboardButton("4", callback_data="set_count_4"),
+             InlineKeyboardButton("5", callback_data="set_count_5")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"📊 Set how many numbers you want to receive:\n\n"
+            f"Current setting: {current_count} numbers",
+            reply_markup=reply_markup
+        )
+        return
+    
     # Handle service selection (old format - for backward compatibility)
     if text in ["💬 WhatsApp", "👥 Facebook", "✈️ Telegram"]:
         service_map = {
@@ -2154,13 +2194,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ Range '{text}' not found in any service.")
                 return
             
-            # Found range - get 5 numbers (like otp_tool.py)
+            # Found range - get numbers (like otp_tool.py)
             range_name = found_range.get('name', '')
             range_id = found_range.get('id', found_range.get('name', ''))
             
+            # Get user's number count preference
+            session = get_user_session(user_id)
+            number_count = session.get('number_count', 5) if session else 5
+            
             with api_lock:
                 # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, 5)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
                 await update.message.reply_text("❌ Failed to get numbers from this range. Please try again.")
@@ -2357,12 +2401,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             range_id = selected_range.get('name', selected_range.get('id', ''))
             range_name = selected_range.get('name', '')
             
-            # Request 5 numbers
-            await update.message.reply_text("⏳ Requesting numbers...")
+            # Get user's number count preference
+            session = get_user_session(user_id)
+            number_count = session.get('number_count', 5) if session else 5
+            
+            # Request numbers
+            await update.message.reply_text(f"⏳ Requesting {number_count} number(s)...")
             
             with api_lock:
                 # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, 5)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
                 await update.message.reply_text("❌ Failed to get numbers. Please try again.")
