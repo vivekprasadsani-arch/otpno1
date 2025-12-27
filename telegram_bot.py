@@ -1354,7 +1354,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if status == 'approved':
         # Get current number count setting
-        session = get_user_session(user_id)
+        session = await get_user_session(user_id)
         current_count = session.get('number_count', 2) if session else 2
         
         # Show main menu buttons
@@ -2544,7 +2544,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             range_id = found_range.get('id', found_range.get('name', ''))
             
             # Get user's number count preference
-            session = get_user_session(user_id)
+            session = await get_user_session(user_id)
             number_count = session.get('number_count', 2) if session else 2
             
             # Request numbers (pre-filtered by get_multiple_numbers)
