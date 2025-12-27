@@ -1343,14 +1343,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = user.username or user.first_name or "Unknown"
     
     # Get current status first (before adding user)
-    status = get_user_status(user_id)
+    status = await get_user_status(user_id)
     
     # Add user to database only if status is 'pending' (user doesn't exist or is pending)
     # This prevents overwriting approved/rejected status
     if status == 'pending':
-        add_user(user_id, username)
+        await add_user(user_id, username)
         # Re-check status after adding
-        status = get_user_status(user_id)
+        status = await get_user_status(user_id)
     
     if status == 'approved':
         # Get current number count setting
@@ -1413,7 +1413,7 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     command = update.message.text.split()[0] if update.message.text else ""
     
     if command == "/users":
-        users = get_all_users()
+        users = await get_all_users()
         if not users:
             await update.message.reply_text("📋 No users found.")
             return
@@ -1436,8 +1436,8 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             # Ensure user exists (username unknown here) then approve
-            add_user(target_id, username=None)
-            approve_user(target_id)
+            await add_user(target_id, username=None)
+            await approve_user(target_id)
             await update.message.reply_text(f"✅ User {target_id} approved/added successfully.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
@@ -1450,7 +1450,7 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if target_id in user_jobs:
                     user_jobs[target_id].schedule_removal()
                     del user_jobs[target_id]
-                remove_user(target_id)
+                await remove_user(target_id)
                 await update.message.reply_text(f"✅ User {target_id} removed successfully.")
             else:
                 await update.message.reply_text("Usage: /remove <user_id>")
@@ -1458,7 +1458,7 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Error: {e}")
     
     elif command == "/pending":
-        pending = get_pending_users()
+        pending = await get_pending_users()
         if not pending:
             await update.message.reply_text("✅ No pending users.")
             return
