@@ -131,18 +131,26 @@ async def get_user_status(user_id):
         return 'pending'
 
 async def add_user(user_id, username):
-    """Add new user to database"""
+    """Add new user to database (if not exists)"""
     try:
         async with db_lock:
-            await asyncio.to_thread(
-                lambda: supabase.table('users').upsert({
-                    'user_id': int(user_id),
-                    'username': username,
-                    'status': 'pending'
-                }).execute()
+            # Check if user exists first to avoid overwriting status with 'pending'
+            # Using upsert blindly caused approved users to reset to pending
+            exists = await asyncio.to_thread(
+                lambda: supabase.table('users').select('user_id').eq('user_id', int(user_id)).execute()
             )
+            if not exists.data:
+                await asyncio.to_thread(
+                    lambda: supabase.table('users').insert({
+                        'user_id': int(user_id),
+                        'username': username,
+                        'status': 'pending'
+                    }).execute()
+                )
     except Exception as e:
-        logger.error(f"Error adding user: {e}")
+        # Ignore duplicate key errors silently, log others
+        if "duplicate key value violates unique constraint" not in str(e):
+            logger.error(f"Error adding user: {e}")
 
 async def approve_user(user_id):
     """Approve user in database"""
