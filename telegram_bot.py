@@ -218,6 +218,18 @@ async def get_approved_user_ids():
         logger.error(f"Error getting approved users: {e}")
         return []
 
+async def get_all_user_ids():
+    """Get list of ALL registered user_ids."""
+    try:
+        async with db_lock:
+            result = await asyncio.to_thread(
+                lambda: supabase.table('users').select('user_id').execute()
+            )
+            return [int(row['user_id']) for row in result.data] if result.data else []
+    except Exception as e:
+        logger.error(f"Error getting all user ids: {e}")
+        return []
+
 async def update_user_session(user_id, service=None, country=None, range_id=None, number=None, monitoring=0, number_count=None):
     """Update user session in database"""
     try:
@@ -1519,18 +1531,18 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        approved_user_ids = await get_approved_user_ids()
-        if not approved_user_ids:
-            await update.message.reply_text("ℹ️ No approved users found to broadcast to.")
+        all_user_ids = await get_all_user_ids()
+        if not all_user_ids:
+            await update.message.reply_text("ℹ️ No users found to broadcast to.")
             return
 
-        await update.message.reply_text(f"📣 Broadcasting to {len(approved_user_ids)} approved user(s)...")
+        await update.message.reply_text(f"📣 Broadcasting to total {len(all_user_ids)} user(s)...")
 
         sent = 0
         failed = 0
         failed_ids = []
 
-        for uid in approved_user_ids:
+        for uid in all_user_ids:
             try:
                 await context.bot.send_message(chat_id=uid, text=broadcast_text)
                 sent += 1
