@@ -710,55 +710,7 @@ class APIClient:
         except Exception as e:
             logger.error(f"Error checking OTP: {e}")
             return None
-        except Exception as e:
-            logger.error(f"Error checking OTP: {e}", exc_info=True)
-            return None
-    
-    def check_otp_batch(self, numbers):
-        """Check OTP for multiple numbers in one API call - much faster"""
-        try:
-            if not self.auth_token:
-                if not self.login():
-                    return {}
-            
-            today = datetime.now().strftime("%d_%m_%Y")
-            timestamp = int(time.time() * 1000)
-            
-            headers = {
-                **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
-            }
-            headers["Origin"] = self.base_url
-            headers["Referer"] = f"{self.base_url}/dashboard/getnum"
-            # API requires mhitauth as header, not query parameter
-            headers["mhitauth"] = self.auth_token
-            
-            # Single API call for all numbers
-            resp = self.session.get(
-                f"{self.base_url}/api/v1/mnitnetworkcom/dashboard/getnuminfo?_date={today}&_page=1&_={timestamp}",
-                headers=headers,
-                timeout=8
-            )
-            
-            # Check if token expired - only retry once
-            if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
-                logger.info("Token expired in check_otp_batch, refreshing...")
-                if self.login():
-                    resp = self.session.get(
-                        f"{self.base_url}/api/v1/mnitnetworkcom/dashboard/getnuminfo?_date={today}&_page=1&_={timestamp}",
-                        headers=headers,
-                        timeout=8
-                    )
-                else:
-                    return {}  # Login failed
-            
-            result = {}
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                except Exception as json_error:
-                    logger.error(f"Failed to parse JSON response: {json_error}, Response text: {resp.text[:500]}")
-                    return {}
-                
+
     async def check_otp_batch(self, numbers):
         """Check OTP for multiple numbers in one API call - Async version"""
         try:
