@@ -1396,7 +1396,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup
             )
         except Exception as e:
-            logger.error(f"Error notifying admin: {e}")
+            logger.error(f"Error notifying admin: {e}", exc_info=True)
+            # Try to start admin conversation if not started? No, bot can't initiate.
+            logger.error(f"Failed to send message to ADMIN_USER_ID: {ADMIN_USER_ID}")
         
         await update.message.reply_text(
             "⏳ Your request has been sent to admin. Please wait for approval."
