@@ -1936,25 +1936,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if r_country_api and r_country_api.lower() == country.lower():
                 # API says this is the right country, but verify with range name
                 r_country_detected = detect_country_from_range(range_name)
+                logger.info(f"Range {range_name}: API says '{r_country_api}', detected from name: '{r_country_detected}', looking for: '{country}'")
                 if r_country_detected:
                     # If range name suggests a different country, skip this range
                     if r_country_detected.lower() == country.lower():
                         is_match = True
-                    # else: API says Cameroon but range starts with 225 (Ivory Coast) - skip it
+                        logger.info(f"✓ Range {range_name} MATCHED (both API and name agree on {country})")
+                    else:
+                        logger.info(f"✗ Range {range_name} SKIPPED (API says {r_country_api} but name suggests {r_country_detected})")
                 else:
                     # Can't detect from range name, trust API
                     is_match = True
+                    logger.info(f"✓ Range {range_name} MATCHED (trusting API {r_country_api}, can't detect from name)")
             # Fallback: if API provides no country info, use range name detection
             elif not r_country_api or r_country_api.strip() == '' or r_country_api == 'Unknown':
                 r_country_detected = detect_country_from_range(range_name)
                 if r_country_detected and r_country_detected.lower() == country.lower():
                     is_match = True
+                    logger.info(f"✓ Range {range_name} MATCHED (no API country, detected {r_country_detected})")
                 # Also try more aggressive detection if needed
                 if not is_match:
                     range_str = str(range_name).upper()
                     for code, c_name in COUNTRY_CODES.items():
                         if code in range_str and c_name.lower() == country.lower():
                             is_match = True
+                            logger.info(f"✓ Range {range_name} MATCHED (aggressive detection found {c_name})")
                             break
             
             if is_match:
