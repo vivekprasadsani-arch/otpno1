@@ -1931,13 +1931,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             r_country_api = r.get('cantryName', r.get('country', ''))
             is_match = False
             
-            # ONLY use API country field - do not override with range name detection
-            # This prevents mismatches where range starts with one country code but belongs to another
+            # Hybrid approach: validate API country against range name to prevent API-side errors
+            # This ensures we don't show Ivory Coast (225) numbers when user selects Cameroon
             if r_country_api and r_country_api.lower() == country.lower():
-                is_match = True
-            # Only use range name detection if API provides no country info
+                # API says this is the right country, but verify with range name
+                r_country_detected = detect_country_from_range(range_name)
+                if r_country_detected:
+                    # If range name suggests a different country, skip this range
+                    if r_country_detected.lower() == country.lower():
+                        is_match = True
+                    # else: API says Cameroon but range starts with 225 (Ivory Coast) - skip it
+                else:
+                    # Can't detect from range name, trust API
+                    is_match = True
+            # Fallback: if API provides no country info, use range name detection
             elif not r_country_api or r_country_api.strip() == '' or r_country_api == 'Unknown':
-                # Detect country from range name as fallback
                 r_country_detected = detect_country_from_range(range_name)
                 if r_country_detected and r_country_detected.lower() == country.lower():
                     is_match = True
