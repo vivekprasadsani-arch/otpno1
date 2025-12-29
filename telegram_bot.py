@@ -1931,23 +1931,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             r_country_api = r.get('cantryName', r.get('country', ''))
             is_match = False
             
-            # Try API country first (case-insensitive)
+            # ONLY use API country field - do not override with range name detection
+            # This prevents mismatches where range starts with one country code but belongs to another
             if r_country_api and r_country_api.lower() == country.lower():
                 is_match = True
-            
-            # Detect country from range name
-            if not is_match:
+            # Only use range name detection if API provides no country info
+            elif not r_country_api or r_country_api.strip() == '' or r_country_api == 'Unknown':
+                # Detect country from range name as fallback
                 r_country_detected = detect_country_from_range(range_name)
                 if r_country_detected and r_country_detected.lower() == country.lower():
                     is_match = True
-            
-            # Also try more aggressive detection if needed
-            if not is_match:
-                range_str = str(range_name).upper()
-                for code, c_name in COUNTRY_CODES.items():
-                    if code in range_str and c_name.lower() == country.lower():
-                        is_match = True
-                        break
+                # Also try more aggressive detection if needed
+                if not is_match:
+                    range_str = str(range_name).upper()
+                    for code, c_name in COUNTRY_CODES.items():
+                        if code in range_str and c_name.lower() == country.lower():
+                            is_match = True
+                            break
             
             if is_match:
                 matching_ranges.append(r)
