@@ -1857,9 +1857,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Try to extract from range name more aggressively
                 range_str = str(range_name).upper()
                 # Sometimes range name contains country code in different format
-                for code, country_name in COUNTRY_CODES.items():
-                    if code in range_str or country_name.upper() in range_str:
-                        country = country_name
+                for code, c_name in COUNTRY_CODES.items():
+                    if code in range_str or c_name.upper() in range_str:
+                        country = c_name
                         break
             
             # Final fallback - use detected or keep as Unknown
