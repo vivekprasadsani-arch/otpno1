@@ -1955,13 +1955,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     is_match = True
                     logger.info(f"✓ Range {range_name} MATCHED (no API country, detected {r_country_detected})")
                 # Also try more aggressive detection if needed
-                if not is_match:
-                    range_str = str(range_name).upper()
-                    for code, c_name in COUNTRY_CODES.items():
-                        if code in range_str and c_name.lower() == country.lower():
-                            is_match = True
-                            logger.info(f"✓ Range {range_name} MATCHED (aggressive detection found {c_name})")
-                            break
+                # Aggressive detection removed to prevent false positives (e.g., matching 244 in 232...)
+                pass
             
             if is_match:
                 matching_ranges.append(r)
