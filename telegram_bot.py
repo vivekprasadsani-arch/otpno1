@@ -1228,9 +1228,10 @@ def detect_language_from_sms(sms_content):
     # Common language indicators
     # NOTE: "code" is too generic (exists in many languages). We prefer longer phrases / accented words.
     language_keywords = {
+        'English': ['your code is', 'verification code', 'otp', 'one-time password', 'do not share', 'verify', 'confirm', 'code is', 'code'],
         'French': ['votre code est', 'vérification', 'vérifier', 'mot de passe', 'confirmer', 'connexion', 'sécurité', 'ne partagez pas'],
         'Spanish': ['tu código es', 'código', 'verificación', 'contraseña', 'confirmar', 'verificar'],
-        'German': ['code', 'bestätigung', 'passwort', 'bestätigen', 'verifizieren', 'ihr code ist'],
+        'German': ['dein code ist', 'ihr code ist', 'bestätigung', 'passwort', 'bestätigen', 'verifizieren'],
         'Italian': ['codice', 'verifica', 'password', 'confermare', 'verificare', 'il tuo codice è'],
         'Portuguese': ['código', 'verificação', 'senha', 'confirmar', 'verificar', 'seu código é'],
         'Russian': ['код', 'подтверждение', 'пароль', 'подтвердить', 'проверить', 'ваш код'],
@@ -1241,7 +1242,7 @@ def detect_language_from_sms(sms_content):
         'Japanese': ['コード', '確認', 'パスワード', '確認する', '検証', 'あなたのコードは'],
         'Korean': ['코드', '확인', '비밀번호', '확인하다', '검증', '귀하의 코드는'],
         'Turkish': ['kod', 'doğrulama', 'şifre', 'onayla', 'doğrula', 'kodunuz'],
-        'Dutch': ['code', 'verificatie', 'wachtwoord', 'bevestigen', 'verifiëren', 'uw code is'],
+        'Dutch': ['uw code is', 'verificatie', 'wachtwoord', 'bevestigen', 'verifiëren'],
         'Polish': ['kod', 'weryfikacja', 'hasło', 'potwierdź', 'zweryfikuj', 'twój kod to'],
         'Thai': ['รหัส', 'การยืนยัน', 'รหัสผ่าน', 'ยืนยัน', 'ตรวจสอบ', 'รหัสของคุณคือ'],
         'Vietnamese': ['mã', 'xác minh', 'mật khẩu', 'xác nhận', 'xác minh', 'mã của bạn là'],
@@ -1398,18 +1399,13 @@ def detect_language_from_sms(sms_content):
         if score > 0:
             scores[lang] = score
 
-    # If no strong non-English match, fall back to English heuristics
-    if not scores:
-        english_keywords = ['verification', 'otp', 'password', 'confirm', 'verify', 'your code is', 'use this code']
-        for kw in english_keywords:
-            if kw in sms_lower:
-                return 'English'
-        # As absolute fallback, English
-        return 'English'
+    # Pick best scoring language (if any)
+    if scores:
+        best_lang = max(scores.items(), key=lambda kv: kv[1])[0]
+        return best_lang
 
-    # Pick best scoring language
-    best_lang = max(scores.items(), key=lambda kv: kv[1])[0]
-    return best_lang
+    # Default fallback
+    return 'English'
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
