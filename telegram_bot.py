@@ -1944,8 +1944,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Also try more aggressive detection if needed
             if not is_match:
                 range_str = str(range_name).upper()
-                for code, country_name in COUNTRY_CODES.items():
-                    if code in range_str and country_name.lower() == country.lower():
+                for code, c_name in COUNTRY_CODES.items():
+                    if code in range_str and c_name.lower() == country.lower():
                         is_match = True
                         break
             
@@ -2022,7 +2022,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     interval=3,  # Increased to 3 seconds to prevent overlap
                     first=3,
                     chat_id=user_id,
-                    data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time()}
+                    data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': query.message.message_id}
                 )
                 user_jobs[user_id] = job  # Store job reference
                 
@@ -2729,7 +2729,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
             message_text += "Tap a number to copy it."
             
-            await update.message.reply_text(
+            sent_msg = await update.message.reply_text(
                 message_text,
                 reply_markup=reply_markup
             )
@@ -2750,7 +2750,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'numbers': numbers_list,
                 'service': found_service,
                 'range_id': range_id,
-                'start_time': start_time_value
+                'start_time': start_time_value,
+                'message_id': sent_msg.message_id
             }
             if country_name:
                 job_data['country'] = country_name
@@ -2893,7 +2894,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 interval=2,
                 first=2,
                 chat_id=user_id,
-                data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time()}
+                data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': sent_msg.message_id}
             )
             user_jobs[user_id] = job
             
@@ -2930,7 +2931,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"Service: {service_icon} {service_name.capitalize()}\n"
             message += f"Waiting for OTP...... ⏳"
             
-            await update.message.reply_text(
+            sent_msg = await update.message.reply_text(
                 message,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
@@ -2946,6 +2947,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
     # Get user_id from job_data first (always set), fallback to job.chat_id
     user_id = job_data.get('user_id') or job.chat_id
     start_time = job_data.get('start_time', time.time())
+    message_id = job_data.get('message_id')  # Get message_id for editing
     
     # Validate user_id
     if not user_id:
@@ -2970,13 +2972,21 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             del user_jobs[user_id]
         update_user_session(user_id, monitoring=0)
         try:
-            numbers_str = ', '.join(numbers)
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"⏱️ Timeout! No OTP received for numbers within 15 minutes."
-            )
-        except:
-            pass
+            # Edit the existing message instead of sending a new one
+            if message_id:
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=message_id,
+                    text=f"⏱️ Timeout! No OTP received within 15 minutes."
+                )
+            else:
+                # Fallback to sending new message if message_id not available
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"⏱️ Timeout! No OTP received within 15 minutes."
+                )
+        except Exception as e:
+            logger.error(f"Error updating timeout message: {e}")
         return
     
     # Get global API client
