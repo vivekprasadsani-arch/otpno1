@@ -459,10 +459,11 @@ class APIClient:
                         cookie_parts = cookie_header.split(';')
                         for part in cookie_parts:
                             if 'mauthtoken=' in part:
-                                cookie_value = part.split('=', 1)[1]
-                                # Set cookie in session
-                                self.session.cookies.set('mauthtoken', cookie_value, domain='stexsms.com', path='/')
-                                logger.info(f"Set mauthtoken cookie")
+                                cookie_value = part.split('=', 1)[1].strip()
+                                # Set cookie in session WITHOUT domain parameter
+                                self.session.cookies.set('mauthtoken', cookie_value)
+                                logger.info(f"Set mauthtoken cookie: {cookie_value[:20]}...")
+                                logger.info(f"Current cookies: {dict(self.session.cookies)}")
                                 break
                 
                 logger.info("Login successful")
