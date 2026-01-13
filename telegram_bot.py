@@ -496,9 +496,27 @@ class APIClient:
                 
                 if resp.status_code == 200:
                     data = resp.json()
-                    ranges = data.get('data', []) if data else []
-                    logger.info(f"Got {len(ranges) if ranges else 0} ranges for {app_origin}")
-                    return ranges if ranges else []
+                    if data and isinstance(data, dict):
+                        ranges = data.get('data', [])
+                        
+                        # Defensive filtering: Ensure ranges belong to the requested app
+                        # Some API responses might leak other service ranges or return all
+                        filtered_ranges = []
+                        for r in ranges:
+                            r_origin = r.get('origin', '').lower()
+                            r_service = r.get('service', '').lower()
+                            req_origin = app_origin.lower()
+                            
+                            # Loose match: check if origin contains the requested service name
+                            if req_origin in r_origin or req_origin in r_service:
+                                filtered_ranges.append(r)
+                            elif r_origin == '' and r_service == '':
+                                # If no origin info, keep it (risky but better than empty)
+                                filtered_ranges.append(r)
+                        
+                        logger.info(f"Got {len(ranges)} raw ranges, {len(filtered_ranges)} filtered for {app_origin}")
+                        return filtered_ranges
+                    return []
                 elif resp.status_code == 401:
                     logger.warning(f"get_ranges attempt {attempt}/{max_retries} failed with status 401")
                     self.auth_token = None  # Force re-login
@@ -1929,8 +1947,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ No ranges found for {country}.")
             return
         
-        range_id = selected_range.get('name', selected_range.get('id', ''))
-        range_name = selected_range.get('name', '')
+        # FIX: Use test_number as the range identifier (e.g. 937081XXX)
+        # The API requires this mask, NOT the numeric ID (e.g. 93)
+        range_id = selected_range.get('test_number') or selected_range.get('name') or selected_range.get('id', '')
+        range_name = range_id
+        
+        logger.info(f"Using range_id for request: {range_id}")
         
         # Show loading message and acknowledge callback immediately
         await query.edit_message_text("⏳ Requesting numbers...")
@@ -2509,8 +2531,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if not ranges:
                 await update.message.reply_text(f"❌ No active ranges available for {service_name}.")
+                logger.info(f"No ranges found for {service_name} (App ID: {app_id})")
                 return
             
+            # Log raw ranges count and first few items
+            logger.info(f"Processing {len(ranges)} ranges for {service_name}")
+            if len(ranges) > 0:
+                logger.debug(f"First range sample: {ranges[0]}")
+
             # Group ranges by country - detect from range name
             country_ranges = {}
             for r in ranges:
