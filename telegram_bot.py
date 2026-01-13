@@ -462,8 +462,12 @@ class APIClient:
             logger.error(traceback.format_exc())
             return False
     
-    def get_ranges(self, app_id, max_retries=10):
-        """Get active ranges for an application with retry logic."""
+    def get_ranges(self, app_origin="whatsapp", max_retries=10):
+        """Get active ranges for an application with retry logic.
+        
+        Args:
+            app_origin: Application origin (e.g., "whatsapp", "telegram")
+        """
         attempt = 0
         while attempt < max_retries:
             attempt += 1
@@ -472,47 +476,41 @@ class APIClient:
                     if not self.login():
                         return []
 
-                # Use minimal headers for curl_cffi - auth is via cookies
-                if self.use_curl:
-                    headers = {
-                        "Accept": "application/json, text/plain, */*",
-                        "Origin": self.base_url,
-                        "Referer": f"{self.base_url}/mdashboard"
-                    }
-                else:
-                    headers = {
-                        **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
-                    }
-                    headers["Origin"] = self.base_url
-                    headers["Referer"] = f"{self.base_url}/mdashboard"
+                # NEW API: Use mauthtoken as custom header, not cookie!
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/plain, */*",
+                    "mauthtoken": self.auth_token,  # Custom header with JWT token
+                    "Origin": self.base_url,
+                    "Referer": f"{self.base_url}/mdashboard/access"
+                }
 
-                resp = self.session.get(
-                    f"{self.base_url}/mapi/v1/mdashboard/getac?type=carriers&appId={app_id}",
+                # NEW API endpoint: POST to /access/info with JSON body
+                resp = self.session.post(
+                    f"{self.base_url}/mapi/v1/mdashboard/access/info",
+                    json={"prefix": "", "origin": app_origin, "keyword": ""},
                     headers=headers,
                     timeout=15
                 )
 
-                # Check if token expired
-                if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
-                    logger.info("Token expired, refreshing...")
-                    if self.login():
-                        # Retry request once immediately with refreshed token
-                        resp = self.session.get(
-                            f"{self.base_url}/mapi/v1/mdashboard/getac?type=carriers&appId={app_id}",
-                            headers=headers,
-                            timeout=15
-                        )
-
                 if resp.status_code == 200:
                     data = resp.json()
-                    if 'data' in data and data['data'] is not None:
-                        return data['data']
+                    ranges = data.get('data', [])
+                    logger.info(f"Got {len(ranges)} ranges for {app_origin}")
+                    return ranges
+                elif resp.status_code == 401:
+                    logger.warning(f"get_ranges attempt {attempt}/{max_retries} failed with status 401")
+                    self.auth_token = None  # Force re-login
+                    time.sleep(1)
+                    continue
+                else:
+                    logger.error(f"get_ranges failed with status {resp.status_code}: {resp.text[:200]}")
+                    return []
 
-                logger.warning(f"get_ranges attempt {attempt}/{max_retries} failed with status {resp.status_code}")
             except Exception as e:
-                logger.error(f"Error getting ranges (attempt {attempt}/{max_retries}): {e}")
-
-            if attempt < max_retries:
+                logger.error(f"get_ranges error on attempt {attempt}: {e}")
+                if attempt >= max_retries:
+                    return []
                 time.sleep(1)
 
         return []
