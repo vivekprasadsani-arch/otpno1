@@ -493,11 +493,15 @@ class APIClient:
                     timeout=15
                 )
 
+                
+                logger.info(f"get_ranges response status: {resp.status_code}")
+                
                 if resp.status_code == 200:
                     data = resp.json()
-                    ranges = data.get('data', [])
-                    logger.info(f"Got {len(ranges)} ranges for {app_origin}")
-                    return ranges
+                    logger.info(f"get_ranges response data keys: {data.keys() if data else 'None'}")
+                    ranges = data.get('data', []) if data else []
+                    logger.info(f"Got {len(ranges) if ranges else 0} ranges for {app_origin}")
+                    return ranges if ranges else []
                 elif resp.status_code == 401:
                     logger.warning(f"get_ranges attempt {attempt}/{max_retries} failed with status 401")
                     self.auth_token = None  # Force re-login
