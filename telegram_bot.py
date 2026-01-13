@@ -1906,10 +1906,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_match:
                 matching_ranges.append(r)
         
-        # Sort ranges for Ivory Coast (22507 priority)
+        # Sort by activity (limit > 0) and then by id
+        # We want to pick the range with the most availability
         if matching_ranges:
-            matching_ranges = sort_ranges_for_ivory_coast(matching_ranges)
-            selected_range = matching_ranges[0]  # Use first (priority) range
+            # Helper to get limit
+            def get_range_limit(r):
+                try:
+                    l = str(r.get('limit_day', '0'))
+                    return 999999 if l.lower() == 'unlimited' else int(float(l))
+                except:
+                    return 0
+            
+            # Sort: Active first (limit desc), then by ID
+            matching_ranges.sort(key=lambda r: (get_range_limit(r), r.get('id', 0)), reverse=True)
+            
+            selected_range = matching_ranges[0]
+            logger.info(f"Selected range {selected_range.get('test_number')} with limit {selected_range.get('limit_day')}")
         else:
             selected_range = None
         
@@ -2538,7 +2550,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 if country not in country_ranges:
                     country_ranges[country] = []
-                country_ranges[country].append(r)
+                
+                # Check if range is active (limit > 0)
+                # Parse limit_day safely
+                try:
+                    limit_val = str(r.get('limit_day', '0'))
+                    if limit_val.lower() == 'unlimited':
+                        limit_int = 999999
+                    else:
+                        limit_int = int(float(limit_val))
+                except:
+                    limit_int = 0
+                
+                # Mark range as active/inactive for sorting later
+                r['_active'] = limit_int > 0
+                r['_limit_int'] = limit_int
+                
+                # Only add if it has some potential (even inactive ones might be useful to show but maybe grayed out? 
+                # User asked "active country dekhaabe", so we filter strict)
+                if limit_int > 0:
+                    country_ranges[country].append(r)
             
             # Create country buttons - INLINE KEYBOARD
             keyboard = []
@@ -2603,8 +2634,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Search for matching range
                 for r in ranges:
-                    range_name = r.get('name', r.get('id', ''))
-                    range_id = r.get('id', r.get('name', ''))
+                    range_name = r.get('test_number') or r.get('name') or r.get('id', '')
+                    range_id = range_name
                     
                     # Check if range matches pattern (remove X's and compare)
                     range_clean = str(range_name).replace('X', '').replace('x', '').replace('+', '').replace('-', '').replace(' ', '')
@@ -2624,8 +2655,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # Found range - get numbers (like otp_tool.py)
-            range_name = found_range.get('name', '')
-            range_id = found_range.get('id', found_range.get('name', ''))
+            range_name = found_range.get('test_number') or found_range.get('name', '')
+            range_id = range_name
             
             # Get user's number count preference
             session = get_user_session(user_id)
