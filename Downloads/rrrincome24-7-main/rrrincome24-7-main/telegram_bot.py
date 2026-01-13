@@ -403,6 +403,7 @@ class APIClient:
             # Use minimal headers for curl_cffi (it handles browser impersonation)
             # Use full headers for other libraries
             if self.use_curl:
+                logger.info("Login: Using curl_cffi with minimal headers")
                 login_headers = {
                     "Content-Type": "application/json",
                     "Accept": "application/json, text/plain, */*",
@@ -410,6 +411,7 @@ class APIClient:
                     "Referer": f"{self.base_url}/mauth/login"
                 }
             else:
+                logger.info("Login: Using standard library with full headers")
                 login_headers = {
                     "Content-Type": "application/json",
                     "Accept": "application/json, text/plain, */*",
@@ -418,12 +420,17 @@ class APIClient:
                     "Referer": f"{self.base_url}/mauth/login"
                 }
             
+            logger.info(f"Login: POST {self.base_url}/mapi/v1/mauth/login")
+            logger.debug(f"Login headers: {login_headers}")
+            
             login_resp = self.session.post(
                 f"{self.base_url}/mapi/v1/mauth/login",
                 json={"email": self.email, "password": self.password},
                 headers=login_headers,
                 timeout=15
             )
+            
+            logger.info(f"Login response: {login_resp.status_code}")
             
             if login_resp.status_code in [200, 201]:
                 login_data = login_resp.json()
