@@ -446,27 +446,12 @@ class APIClient:
                     logger.error(f"Login response missing token: {login_data}")
                     return False
                 
+                
                 self.auth_token = login_data['data']['token']
                 
-                # Manually extract and set cookies from response
-                # The API sets mauthtoken cookie which is used for authentication
-                if 'Set-Cookie' in login_resp.headers or 'set-cookie' in login_resp.headers:
-                    cookie_header = login_resp.headers.get('Set-Cookie') or login_resp.headers.get('set-cookie')
-                    logger.info(f"Setting cookies from login response")
-                    # Extract mauthtoken from Set-Cookie header
-                    if 'mauthtoken=' in cookie_header:
-                        # Parse cookie value
-                        cookie_parts = cookie_header.split(';')
-                        for part in cookie_parts:
-                            if 'mauthtoken=' in part:
-                                cookie_value = part.split('=', 1)[1].strip()
-                                # Set cookie in session WITHOUT domain parameter
-                                self.session.cookies.set('mauthtoken', cookie_value)
-                                logger.info(f"Set mauthtoken cookie: {cookie_value[:20]}...")
-                                logger.info(f"Current cookies: {dict(self.session.cookies)}")
-                                break
-                
-                logger.info("Login successful")
+                # No need to manually set cookies - the response automatically sets them!
+                # The login response includes Set-Cookie header which requests library handles automatically
+                logger.info(f"Login successful - cookies set automatically by response")
                 return True
             else:
                 logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
