@@ -67,8 +67,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Service → appId mapping (known primary services)
 SERVICE_APP_IDS = {
-    "whatsapp": "verifyed-access-whatsapp",
-    "facebook": "verifyed-access-facebook",
+    "whatsapp": "whatsapp",
+    "facebook": "facebook",
 }
 
 def init_database():
