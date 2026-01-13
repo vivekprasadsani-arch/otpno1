@@ -366,17 +366,17 @@ def resolve_app_id(service_name, context):
 # API Functions (from otp_tool.py)
 class APIClient:
     def __init__(self):
-        logger.info("🔧 APIClient v2.0 - stexsms.com migration")
+        logger.info("🔧 APIClient v2.1 - Using cloudscraper for better cookie handling")
         self.base_url = BASE_URL
-        # Use curl_cffi if available (best for Cloudflare bypass)
-        if HAS_CURL_CFFI:
-            self.session = curl_requests.Session(impersonate="chrome110")
-            self.use_curl = True
-            logger.info("Using curl_cffi for Cloudflare bypass")
-        elif HAS_CLOUDSCRAPER:
+        # Use cloudscraper first (better cookie handling for this API)
+        if HAS_CLOUDSCRAPER:
             self.session = cloudscraper.create_scraper()
             self.use_curl = False
             logger.info("Using cloudscraper for Cloudflare bypass")
+        elif HAS_CURL_CFFI:
+            self.session = curl_requests.Session(impersonate="chrome110")
+            self.use_curl = True
+            logger.info("Using curl_cffi for Cloudflare bypass")
         else:
             self.session = requests.Session()
             self.use_curl = False
