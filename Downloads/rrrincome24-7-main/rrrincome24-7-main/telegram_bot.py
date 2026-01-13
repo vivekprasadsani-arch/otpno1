@@ -402,9 +402,9 @@ class APIClient:
         try:
             login_headers = {
                 "Content-Type": "application/json",
+                "Accept": "application/json, text/plain, */*",
                 "User-Agent": self.browser_headers["User-Agent"],
-                "Accept": self.browser_headers["Accept"],
-                "Origin": self.browser_headers["Origin"],
+                "Origin": self.base_url,
                 "Referer": f"{self.base_url}/mauth/login"
             }
             login_resp = self.session.post(
@@ -428,10 +428,6 @@ class APIClient:
                     return False
                 
                 self.auth_token = login_data['data']['token']
-                
-                # Set cookies for stexsms.com domain
-                self.session.cookies.set('stexsms_token', self.auth_token, domain='stexsms.com')
-                
                 logger.info("Login successful")
                 return True
             else:
