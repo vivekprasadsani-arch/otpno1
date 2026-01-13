@@ -657,9 +657,9 @@ class APIClient:
                 **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
             }
             headers["Origin"] = self.base_url
-            headers["Referer"] = f"{self.base_url}/mdashboard"
-            # API requires Authorization header
-            headers["Authorization"] = f"Bearer {self.auth_token}"
+            headers["Referer"] = f"{self.base_url}/mdashboard/getnum"
+            # API requires mauthtoken header (verified via HAR)
+            headers["mauthtoken"] = self.auth_token
             
             # Reduced timeout for faster response
             resp = self.session.get(
@@ -672,6 +672,7 @@ class APIClient:
             if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
                 logger.info("Token expired in check_otp, refreshing...")
                 if self.login():
+                    headers["mauthtoken"] = self.auth_token
                     # Retry request once
                     resp = self.session.get(
                         f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today}&page=1&search=&status=",
@@ -739,9 +740,9 @@ class APIClient:
                 **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
             }
             headers["Origin"] = self.base_url
-            headers["Referer"] = f"{self.base_url}/mdashboard"
-            # API requires Authorization header
-            headers["Authorization"] = f"Bearer {self.auth_token}"
+            headers["Referer"] = f"{self.base_url}/mdashboard/getnum"
+            # API requires mauthtoken header (verified via HAR)
+            headers["mauthtoken"] = self.auth_token
             
             # Single API call for all numbers
             resp = self.session.get(
@@ -754,6 +755,8 @@ class APIClient:
             if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
                 logger.info("Token expired in check_otp_batch, refreshing...")
                 if self.login():
+                    # UPDATE TOKEN IN HEADERS!
+                    headers["mauthtoken"] = self.auth_token
                     resp = self.session.get(
                         f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today}&page=1&search=&status=",
                         headers=headers,
@@ -2163,66 +2166,88 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await query.edit_message_text(f"❌ No ranges found for {service_name.upper()}.")
                     return
             
-            # Create keyboard with ranges
-            keyboard = []
-            # Store range mapping in context for this user (using hash to keep callback_data short)
-            if 'range_mapping' not in context.user_data:
-                context.user_data['range_mapping'] = {}
+            # --- START LOGIC FROM handle_message ---
+            # Group ranges by country - detect from range name
+            country_ranges = {}
+            active_count = 0
             
-            # Group ranges in rows of 2
-            for i in range(0, len(ranges), 2):
+            # Store selected service for the country_ callback handler
+            context.user_data['selected_service'] = service_name
+            
+            for r in ranges:
+                # Better parsing: Use test_number as primary name/ID if available
+                range_name = r.get('test_number') or r.get('name') or r.get('id', '')
+                
+                # Country detection: Use destination field first
+                country = r.get('cantryName') or r.get('country')
+                if not country and 'destination' in r:
+                    country = r['destination'].split('-')[0].strip()
+                
+                if not country or country == 'Unknown' or country.strip() == '':
+                    country = detect_country_from_range(range_name)
+                
+                if not country or country == 'Unknown':
+                    range_str = str(range_name).upper()
+                    for code, country_name in COUNTRY_CODES.items():
+                        if code in range_str or country_name.upper() in range_str:
+                            country = country_name
+                            break
+                
+                if not country:
+                    country = 'Unknown'
+
+                if country not in country_ranges:
+                    country_ranges[country] = []
+                
+                # Check active
+                try:
+                    limit_val = str(r.get('limit_day', '0'))
+                    limit_int = 999999 if limit_val.lower() == 'unlimited' else int(float(limit_val))
+                except:
+                    limit_int = 0
+                
+                r['_active'] = limit_int > 0
+                r['_limit_int'] = limit_int
+                
+                # FILTER: Only add if active (limit > 0)
+                if limit_int > 0:
+                    country_ranges[country].append(r)
+                    active_count += 1
+
+            # Store in context for country_ callback
+            context.user_data['country_ranges'] = country_ranges
+            
+            if active_count == 0:
+                await query.edit_message_text(f"❌ No active ranges (limit > 0) found for {service_name.upper()}.")
+                return
+
+            # Create country buttons
+            keyboard = []
+            sorted_countries = sorted(country_ranges.keys())
+            
+            # Filter out countries with no ranges (shouldn't happen with logic above but good safety)
+            valid_countries = [c for c in sorted_countries if country_ranges[c]]
+            
+            for i in range(0, len(valid_countries), 2):
                 row = []
-                range1 = ranges[i]
-                # Use 'test_number' as primary identifier (contains the mask e.g. 937081XXX)
-                range_name1 = range1.get('test_number') or range1.get('name') or range1.get('id', '')
-                # Use same for ID
-                range_id1 = range_name1
-                # Also get the numeric 'id' field if needed (though API seems to want the mask)
-                range_id_field1 = range1.get('id', '')
-                # For "others", get actual service from range's _service field
-                actual_service = range1.get('_service', service_name) if service_name == "others" else service_name
-                # Create short hash for callback_data (max 64 bytes limit)
-                range_hash1 = hashlib.md5(f"{actual_service}_{range_id1}".encode()).hexdigest()[:12]
-                # Store both range_name and range_id (like otp_tool.py)
-                context.user_data['range_mapping'][range_hash1] = {
-                    'service': actual_service,  # Store actual service (e.g., "telegram") not "others"
-                    'range_id': range_id1,
-                    'range_name': range_name1,
-                    'range_id_field': range_id_field1
-                }
-                # Truncate long range names
-                display_name1 = range_name1[:20] + "..." if len(range_name1) > 20 else range_name1
-                row.append(InlineKeyboardButton(display_name1, callback_data=f"rng_{range_hash1}"))
+                c1 = valid_countries[i]
+                count1 = len(country_ranges[c1])
+                row.append(InlineKeyboardButton(f"{c1} ({count1})", callback_data=f"country_{c1}"))
                 
-                if i + 1 < len(ranges):
-                    range2 = ranges[i + 1]
-                    # Use 'test_number' as primary identifier
-                    range_name2 = range2.get('test_number') or range2.get('name') or range2.get('id', '')
-                    # Use same for ID
-                    range_id2 = range_name2
-                    # Also get the numeric 'id' field if needed
-                    range_id_field2 = range2.get('id', '')
-                    # For "others", get actual service from range's _service field
-                    actual_service2 = range2.get('_service', service_name) if service_name == "others" else service_name
-                    range_hash2 = hashlib.md5(f"{actual_service2}_{range_id2}".encode()).hexdigest()[:12]
-                    # Store both range_name and range_id (like otp_tool.py)
-                    context.user_data['range_mapping'][range_hash2] = {
-                        'service': actual_service2,  # Store actual service (e.g., "telegram") not "others"
-                        'range_id': range_id2,
-                        'range_name': range_name2,
-                        'range_id_field': range_id_field2
-                    }
-                    display_name2 = range_name2[:20] + "..." if len(range_name2) > 20 else range_name2
-                    row.append(InlineKeyboardButton(display_name2, callback_data=f"rng_{range_hash2}"))
-                
+                if i + 1 < len(valid_countries):
+                    c2 = valid_countries[i + 1]
+                    count2 = len(country_ranges[c2])
+                    row.append(InlineKeyboardButton(f"{c2} ({count2})", callback_data=f"country_{c2}"))
                 keyboard.append(row)
+            
+            # --- END LOGIC ---
             
             keyboard.append([InlineKeyboardButton("🔙 Back to Services", callback_data="rangechkr_back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             display_service_name = "Others" if service_name == "others" else service_name.upper()
             await query.edit_message_text(
-                f"📋 {display_service_name} Ranges ({len(ranges)} available):\n\nSelect a range:",
+                f"📋 {display_service_name} - Active Countries:\n\nSelect a country:",
                 reply_markup=reply_markup
             )
         except Exception as e:
