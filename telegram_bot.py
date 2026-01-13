@@ -468,12 +468,21 @@ class APIClient:
                     if not self.login():
                         return []
 
-                headers = {
-                    "Authorization": f"Bearer {self.auth_token}",
-                    **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
-                }
-                headers["Origin"] = self.base_url
-                headers["Referer"] = f"{self.base_url}/mdashboard"
+                # Use minimal headers for curl_cffi
+                if self.use_curl:
+                    headers = {
+                        "Authorization": f"Bearer {self.auth_token}",
+                        "Accept": "application/json, text/plain, */*",
+                        "Origin": self.base_url,
+                        "Referer": f"{self.base_url}/mdashboard"
+                    }
+                else:
+                    headers = {
+                        "Authorization": f"Bearer {self.auth_token}",
+                        **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
+                    }
+                    headers["Origin"] = self.base_url
+                    headers["Referer"] = f"{self.base_url}/mdashboard"
 
                 resp = self.session.get(
                     f"{self.base_url}/mapi/v1/mdashboard/getac?type=carriers&appId={app_id}",
@@ -516,12 +525,21 @@ class APIClient:
                     if not self.login():
                         return []
 
-                headers = {
-                    "Authorization": f"Bearer {self.auth_token}",
-                    **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
-                }
-                headers["Origin"] = self.base_url
-                headers["Referer"] = f"{self.base_url}/mdashboard"
+                # Use minimal headers for curl_cffi
+                if self.use_curl:
+                    headers = {
+                        "Authorization": f"Bearer {self.auth_token}",
+                        "Accept": "application/json, text/plain, */*",
+                        "Origin": self.base_url,
+                        "Referer": f"{self.base_url}/mdashboard"
+                    }
+                else:
+                    headers = {
+                        "Authorization": f"Bearer {self.auth_token}",
+                        **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
+                    }
+                    headers["Origin"] = self.base_url
+                    headers["Referer"] = f"{self.base_url}/mdashboard"
 
                 resp = self.session.get(
                     f"{self.base_url}/mapi/v1/mdashboard/getac?type=applications",
