@@ -1005,6 +1005,37 @@ def detect_country_from_range(range_name):
     
     return None
 
+def get_country_from_range_data(r):
+    """
+    Robust country detection from range data object.
+    Priority:
+    1. 'destination' field (e.g., "Afghanistan - AWCC") - Most reliable per HAR
+    2. 'cantryName' or 'country' field from API
+    3. 'detect_country_from_range' using range name/test_number
+    """
+    # 1. Check destination field (Primary source)
+    if 'destination' in r and r['destination']:
+        # Format is usually "CountryName - Carrier"
+        # Split by '-' and take the first part
+        parts = r['destination'].split('-')
+        if parts:
+            country = parts[0].strip()
+            if country and country.lower() != 'unknown':
+                return country
+
+    # 2. Check other API fields
+    api_country = r.get('cantryName') or r.get('country')
+    if api_country and api_country.lower() != 'unknown' and api_country.strip():
+        return api_country
+
+    # 3. Fallback: Detect from range name/test_number
+    range_name = r.get('test_number') or r.get('name') or r.get('id', '')
+    detected = detect_country_from_range(range_name)
+    if detected and detected != 'Unknown':
+        return detected
+
+    return 'Unknown'
+
 def get_country_flag(country_name):
     """Get flag emoji for country"""
     if not country_name or country_name == 'Unknown':
@@ -1899,30 +1930,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Hybrid approach: validate API country against range name to prevent API-side errors
             # This ensures we don't show Ivory Coast (225) numbers when user selects Cameroon
-            if r_country_api and r_country_api.lower() == country.lower():
-                # API says this is the right country, but verify with range name
-                r_country_detected = detect_country_from_range(range_name)
-                logger.info(f"Range {range_name}: API says '{r_country_api}', detected from name: '{r_country_detected}', looking for: '{country}'")
-                if r_country_detected:
-                    # If range name suggests a different country, skip this range
-                    if r_country_detected.lower() == country.lower():
-                        is_match = True
-                        logger.info(f"✓ Range {range_name} MATCHED (both API and name agree on {country})")
-                    else:
-                        logger.info(f"✗ Range {range_name} SKIPPED (API says {r_country_api} but name suggests {r_country_detected})")
-                else:
-                    # Can't detect from range name, trust API
-                    is_match = True
-                    logger.info(f"✓ Range {range_name} MATCHED (trusting API {r_country_api}, can't detect from name)")
-            # Fallback: if API provides no country info, use range name detection
-            elif not r_country_api or r_country_api.strip() == '' or r_country_api == 'Unknown':
-                r_country_detected = detect_country_from_range(range_name)
-                if r_country_detected and r_country_detected.lower() == country.lower():
-                    is_match = True
-                    logger.info(f"✓ Range {range_name} MATCHED (no API country, detected {r_country_detected})")
-                # Also try more aggressive detection if needed
-                # Aggressive detection removed to prevent false positives (e.g., matching 244 in 232...)
-                pass
+            # Unified matching logic
+            r_country = get_country_from_range_data(r)
+            if r_country and r_country.lower() == country.lower():
+                is_match = True
+                logger.debug(f"✓ Range matched for {country}")
+            elif r_country == 'Unknown':
+                 # Fallback for Unknown: if we can't tell, maybe include it? 
+                 # Or safer: don't include it. 
+                 # Let's rely on get_country_from_range_data being robust.
+                 is_match = False
+            else:
+                pass # Not a match
             
             if is_match:
                 matching_ranges.append(r)
@@ -2175,26 +2194,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['selected_service'] = service_name
             
             for r in ranges:
-                # Better parsing: Use test_number as primary name/ID if available
-                range_name = r.get('test_number') or r.get('name') or r.get('id', '')
-                
-                # Country detection: Use destination field first
-                country = r.get('cantryName') or r.get('country')
-                if not country and 'destination' in r:
-                    country = r['destination'].split('-')[0].strip()
-                
-                if not country or country == 'Unknown' or country.strip() == '':
-                    country = detect_country_from_range(range_name)
-                
-                if not country or country == 'Unknown':
-                    range_str = str(range_name).upper()
-                    for code, country_name in COUNTRY_CODES.items():
-                        if code in range_str or country_name.upper() in range_str:
-                            country = country_name
-                            break
-                
-                if not country:
-                    country = 'Unknown'
+                # Use unified helper
+                country = get_country_from_range_data(r)
 
                 if country not in country_ranges:
                     country_ranges[country] = []
@@ -2567,74 +2568,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Group ranges by country - detect from range name
             country_ranges = {}
             for r in ranges:
-                # Better parsing: Use test_number as primary name/ID if available
-                range_name = r.get('test_number') or r.get('name') or r.get('id', '')
+                # Use unified helper
+                country = get_country_from_range_data(r)
                 
-                # Country detection: Use destination field first (e.g., "Afghanistan - AWCC")
-                country = r.get('cantryName') or r.get('country')
-                if not country and 'destination' in r:
-                    # Extract "Afghanistan" from "Afghanistan - AWCC"
-                    country = r['destination'].split('-')[0].strip()
-                
-                # If country not found or Unknown, detect from range name
-                if not country or country == 'Unknown' or country.strip() == '':
-                    country = detect_country_from_range(range_name)
-                
-                # Only use Unknown as last resort - try harder to detect
-                if not country or country == 'Unknown':
-                    # Try to extract from range name more aggressively
-                    range_str = str(range_name).upper()
-                    # Sometimes range name contains country code in different format
-                    for code, country_name in COUNTRY_CODES.items():
-                        if code in range_str or country_name.upper() in range_str:
-                            country = country_name
-                            break
-                
-                # Final fallback - use detected or keep as Unknown
-                if not country:
-                    country = 'Unknown'
-                
-                # Filter out false positives for country detection (e.g., "55" -> Brazil)
-                # If range name is just digits and short, don't trust it as country code
-                range_clean = str(range_name).strip()
-                if country != 'Unknown' and range_clean.isdigit() and len(range_clean) < 4:
-                    # It's likely just a range ID, not a country prefix
-                    country = 'Unknown'
-
                 if country not in country_ranges:
                     country_ranges[country] = []
                 
-                # Check if range is active (limit > 0)
-                # Parse limit_day safely
+                # Check active
                 try:
                     limit_val = str(r.get('limit_day', '0'))
-                    if limit_val.lower() == 'unlimited':
-                        limit_int = 999999
-                    else:
-                        limit_int = int(float(limit_val))
+                    limit_int = 999999 if limit_val.lower() == 'unlimited' else int(float(limit_val))
                 except:
                     limit_int = 0
                 
-                # Mark range as active/inactive for sorting later
-                r['_active'] = limit_int > 0
-                r['_limit_int'] = limit_int
-                
-                # Only add if it has some potential (even inactive ones might be useful to show but maybe grayed out? 
-                # User asked "active country dekhaabe", so we filter strict)
+                # FILTER: Only add if active (limit > 0)
                 if limit_int > 0:
                     country_ranges[country].append(r)
             
+            # Sort active countries
+            sorted_countries = sorted([c for c in country_ranges.keys() if country_ranges[c] and c != 'Unknown'])
+            
+            # Add Unknown at the end if exists and has active ranges
+            if 'Unknown' in country_ranges and country_ranges['Unknown']:
+                sorted_countries.append('Unknown')
+
+            if not sorted_countries:
+                msg = f"❌ No active countries found for {service_name}. (Total raw ranges: {len(ranges)})"
+                await update.message.reply_text(msg)
+                return
             # Create country buttons - INLINE KEYBOARD
             keyboard = []
-            # Filter out Unknown countries - try to detect them first
-            country_list = []
-            for country in sorted(country_ranges.keys()):
-                if country != 'Unknown':
-                    country_list.append(country)
+            country_list = sorted_countries
             
-            # Only add Unknown if we really can't detect any country
-            if 'Unknown' in country_ranges and len(country_list) == 0:
-                country_list.append('Unknown')
+            # Create inline keyboard rows (2 buttons per row)
             
             # Create inline keyboard rows (2 buttons per row)
             for i in range(0, len(country_list), 2):
