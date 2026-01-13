@@ -1008,12 +1008,18 @@ def detect_country_from_range(range_name):
 def get_country_from_range_data(r):
     """
     Robust country detection from range data object.
-    Priority:
-    1. 'destination' field (e.g., "Afghanistan - AWCC") - Most reliable per HAR
-    2. 'cantryName' or 'country' field from API
-    3. 'detect_country_from_range' using range name/test_number
+    Priority (Updated per User Request):
+    1. 'detect_country_from_range' using range name/test_number (Range prefix is truth)
+    2. 'destination' field (e.g., "Afghanistan - AWCC")
+    3. 'cantryName' or 'country' field from API
     """
-    # 1. Check destination field (Primary source)
+    # 1. Check range prefix (User specified: "look at first numbers of range")
+    range_name = r.get('test_number') or r.get('name') or r.get('id', '')
+    detected = detect_country_from_range(range_name)
+    if detected and detected != 'Unknown':
+        return detected
+
+    # 2. Check destination field
     if 'destination' in r and r['destination']:
         # Format is usually "CountryName - Carrier"
         # Split by '-' and take the first part
@@ -1023,16 +1029,10 @@ def get_country_from_range_data(r):
             if country and country.lower() != 'unknown':
                 return country
 
-    # 2. Check other API fields
+    # 3. Check other API fields
     api_country = r.get('cantryName') or r.get('country')
     if api_country and api_country.lower() != 'unknown' and api_country.strip():
         return api_country
-
-    # 3. Fallback: Detect from range name/test_number
-    range_name = r.get('test_number') or r.get('name') or r.get('id', '')
-    detected = detect_country_from_range(range_name)
-    if detected and detected != 'Unknown':
-        return detected
 
     return 'Unknown'
 
