@@ -468,17 +468,15 @@ class APIClient:
                     if not self.login():
                         return []
 
-                # Use minimal headers for curl_cffi
+                # Use minimal headers for curl_cffi - auth is via cookies
                 if self.use_curl:
                     headers = {
-                        "Authorization": f"Bearer {self.auth_token}",
                         "Accept": "application/json, text/plain, */*",
                         "Origin": self.base_url,
                         "Referer": f"{self.base_url}/mdashboard"
                     }
                 else:
                     headers = {
-                        "Authorization": f"Bearer {self.auth_token}",
                         **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
                     }
                     headers["Origin"] = self.base_url
@@ -525,17 +523,15 @@ class APIClient:
                     if not self.login():
                         return []
 
-                # Use minimal headers for curl_cffi
+                # Use minimal headers for curl_cffi - auth is via cookies
                 if self.use_curl:
                     headers = {
-                        "Authorization": f"Bearer {self.auth_token}",
                         "Accept": "application/json, text/plain, */*",
                         "Origin": self.base_url,
                         "Referer": f"{self.base_url}/mdashboard"
                     }
                 else:
                     headers = {
-                        "Authorization": f"Bearer {self.auth_token}",
                         **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
                     }
                     headers["Origin"] = self.base_url
