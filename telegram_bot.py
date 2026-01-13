@@ -526,19 +526,13 @@ class APIClient:
                     if not self.login():
                         return []
 
-                # Use minimal headers for curl_cffi - auth is via cookies
-                if self.use_curl:
-                    headers = {
-                        "Accept": "application/json, text/plain, */*",
-                        "Origin": self.base_url,
-                        "Referer": f"{self.base_url}/mdashboard"
-                    }
-                else:
-                    headers = {
-                        **{k: v for k, v in self.browser_headers.items() if k not in ["Origin", "Referer", "Content-Type"]}
-                    }
-                    headers["Origin"] = self.base_url
-                    headers["Referer"] = f"{self.base_url}/mdashboard"
+                # Use mauthtoken custom header
+                headers = {
+                    "Accept": "application/json, text/plain, */*",
+                    "mauthtoken": self.auth_token,
+                    "Origin": self.base_url,
+                    "Referer": f"{self.base_url}/mdashboard"
+                }
 
                 resp = self.session.get(
                     f"{self.base_url}/mapi/v1/mdashboard/getac?type=applications",
@@ -549,6 +543,8 @@ class APIClient:
                 if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
                     logger.info("Token expired in get_applications, refreshing...")
                     if self.login():
+                        # Update token in header
+                        headers["mauthtoken"] = self.auth_token
                         resp = self.session.get(
                             f"{self.base_url}/mapi/v1/mdashboard/getac?type=applications",
                             headers=headers,
