@@ -518,52 +518,20 @@ class APIClient:
 
     def get_applications(self, max_retries=5):
         """Fetch available applications (services) list."""
-        attempt = 0
-        while attempt < max_retries:
-            attempt += 1
-            try:
-                if not self.auth_token:
-                    if not self.login():
-                        return []
-
-                # Use mauthtoken custom header
-                headers = {
-                    "Accept": "application/json, text/plain, */*",
-                    "mauthtoken": self.auth_token,
-                    "Origin": self.base_url,
-                    "Referer": f"{self.base_url}/mdashboard"
-                }
-
-                resp = self.session.get(
-                    f"{self.base_url}/mapi/v1/mdashboard/getac?type=applications",
-                    headers=headers,
-                    timeout=15
-                )
-
-                if resp.status_code == 401 or (resp.status_code == 200 and 'expired' in resp.text.lower()):
-                    logger.info("Token expired in get_applications, refreshing...")
-                    if self.login():
-                        # Update token in header
-                        headers["mauthtoken"] = self.auth_token
-                        resp = self.session.get(
-                            f"{self.base_url}/mapi/v1/mdashboard/getac?type=applications",
-                            headers=headers,
-                            timeout=15
-                        )
-
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, dict) and 'data' in data and data['data'] is not None:
-                        return data['data']
-
-                logger.warning(f"get_applications attempt {attempt}/{max_retries} failed with status {resp.status_code}")
-            except Exception as e:
-                logger.error(f"Error in get_applications (attempt {attempt}/{max_retries}): {e}")
-
-            if attempt < max_retries:
-                time.sleep(1)
-
-        return []
+        # The API endpoint for applications list is not available/documented
+        # Returning static list of common applications supported by stexsms
+        logger.info("Using static application list")
+        return [
+            {"id": "whatsapp", "name": "WhatsApp", "origin": "whatsapp"},
+            {"id": "telegram", "name": "Telegram", "origin": "telegram"},
+            {"id": "facebook", "name": "Facebook", "origin": "facebook"},
+            {"id": "instagram", "name": "Instagram", "origin": "instagram"},
+            {"id": "imo", "name": "Imo", "origin": "imo"},
+            {"id": "google", "name": "Google/Gmail", "origin": "google"},
+            {"id": "twitter", "name": "Twitter/X", "origin": "twitter"},
+            {"id": "tiktok", "name": "TikTok", "origin": "tiktok"},
+            {"id": "viber", "name": "Viber", "origin": "viber"}
+        ]
     
     def get_number(self, range_id):
         """Request a number from a range"""
