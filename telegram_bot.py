@@ -2139,10 +2139,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(ranges), 2):
                 row = []
                 range1 = ranges[i]
-                range_name1 = range1.get('name', range1.get('id', ''))
-                # Use 'name' as primary identifier, fallback to 'id'
-                range_id1 = range1.get('name') or range1.get('id', '')
-                # Also get the 'id' field separately (might be different from name)
+                # Use 'test_number' as primary identifier (contains the mask e.g. 937081XXX)
+                range_name1 = range1.get('test_number') or range1.get('name') or range1.get('id', '')
+                # Use same for ID
+                range_id1 = range_name1
+                # Also get the numeric 'id' field if needed (though API seems to want the mask)
                 range_id_field1 = range1.get('id', '')
                 # For "others", get actual service from range's _service field
                 actual_service = range1.get('_service', service_name) if service_name == "others" else service_name
@@ -2161,10 +2162,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if i + 1 < len(ranges):
                     range2 = ranges[i + 1]
-                    range_name2 = range2.get('name', range2.get('id', ''))
-                    # Use 'name' as primary identifier, fallback to 'id'
-                    range_id2 = range2.get('name') or range2.get('id', '')
-                    # Also get the 'id' field separately (might be different from name)
+                    # Use 'test_number' as primary identifier
+                    range_name2 = range2.get('test_number') or range2.get('name') or range2.get('id', '')
+                    # Use same for ID
+                    range_id2 = range_name2
+                    # Also get the numeric 'id' field if needed
                     range_id_field2 = range2.get('id', '')
                     # For "others", get actual service from range's _service field
                     actual_service2 = range2.get('_service', service_name) if service_name == "others" else service_name
@@ -2500,8 +2502,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Group ranges by country - detect from range name
             country_ranges = {}
             for r in ranges:
-                range_name = r.get('name', r.get('id', ''))
-                country = r.get('cantryName', r.get('country', ''))
+                # Better parsing: Use test_number as primary name/ID if available
+                range_name = r.get('test_number') or r.get('name') or r.get('id', '')
+                
+                # Country detection: Use destination field first (e.g., "Afghanistan - AWCC")
+                country = r.get('cantryName') or r.get('country')
+                if not country and 'destination' in r:
+                    # Extract "Afghanistan" from "Afghanistan - AWCC"
+                    country = r['destination'].split('-')[0].strip()
                 
                 # If country not found or Unknown, detect from range name
                 if not country or country == 'Unknown' or country.strip() == '':
