@@ -54,7 +54,7 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "7325836764"))
 OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1002724043027"))  # Channel ID for forwarding OTP messages
 
 # API Configuration (from otp_tool.py)
-BASE_URL = "https://v2.mnitnetwork.com"
+BASE_URL = "https://stexsms.com"
 API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
 
@@ -3273,6 +3273,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
