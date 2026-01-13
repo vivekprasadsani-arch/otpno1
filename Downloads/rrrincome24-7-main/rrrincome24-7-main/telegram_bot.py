@@ -400,13 +400,24 @@ class APIClient:
     def login(self):
         """Login to API - Updated for stexsms.com"""
         try:
-            login_headers = {
-                "Content-Type": "application/json",
-                "Accept": "application/json, text/plain, */*",
-                "User-Agent": self.browser_headers["User-Agent"],
-                "Origin": self.base_url,
-                "Referer": f"{self.base_url}/mauth/login"
-            }
+            # Use minimal headers for curl_cffi (it handles browser impersonation)
+            # Use full headers for other libraries
+            if self.use_curl:
+                login_headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/plain, */*",
+                    "Origin": self.base_url,
+                    "Referer": f"{self.base_url}/mauth/login"
+                }
+            else:
+                login_headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/plain, */*",
+                    "User-Agent": self.browser_headers["User-Agent"],
+                    "Origin": self.base_url,
+                    "Referer": f"{self.base_url}/mauth/login"
+                }
+            
             login_resp = self.session.post(
                 f"{self.base_url}/mapi/v1/mauth/login",
                 json={"email": self.email, "password": self.password},
