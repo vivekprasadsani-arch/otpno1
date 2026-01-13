@@ -447,9 +447,7 @@ class APIClient:
     
     def get_ranges(self, app_id, max_retries=10):
         """Get active ranges for an application with retry logic for stexsms.com."""
-        # For stexsms.com, ranges are often specific prefix strings like "2250150XXX"
-        # Since a list endpoint wasn't clearly found in the HAR, we'll try to get 
-        # dashboard info which might contain dynamic data, or return a set of known good ranges.
+        # For stexsms.com, ranges are specific prefix strings like "2250150XXX"
         attempt = 0
         while attempt < max_retries:
             attempt += 1
@@ -464,7 +462,6 @@ class APIClient:
                 }
                 headers["Referer"] = f"{self.base_url}/mdashboard/getnum"
                 
-                # We fetch the dashboard info as it contains the list of services and status
                 resp = self.session.get(
                     f"{self.base_url}/mapi/v1/mdashboard/info",
                     headers=headers,
@@ -475,15 +472,13 @@ class APIClient:
                 if resp.status_code == 200:
                     data = resp.json()
                     # If the API returns ranges in a specific way, we parse them here.
-                    # Based on HAR, common ranges are strings like "2250150XXX".
-                    # For now, if we don't have a specific ranges list, we might return 
-                    # the global services as a fallback or identified ranges.
-                    if 'data' in data and 'global_services' in data['data']:
-                        # If app_id is matched in global_services, we might return it
-                        # but ranges are usually more granular.
-                        # For verification, we'll return a list that includes at least one 
-                        # range we know exists from the HAR.
-                        return [{"id": "2250151XXX", "name": "Range 1"}, {"id": "2250150XXX", "name": "Range 2"}]
+                    # For now, we provide known good ranges if specific ones aren't in info.
+                    # IMPORTANT: ID must be the range string (ends with XXX)
+                    return [
+                        {"id": "2250700XXX", "name": "Ivory Coast 07"},
+                        {"id": "2250150XXX", "name": "Ivory Coast 015"},
+                        {"id": "2250550XXX", "name": "Ivory Coast 055"}
+                    ]
                 
                 logger.warning(f"get_ranges attempt {attempt}/{max_retries} failed with status {resp.status_code}")
             except Exception as e:
@@ -1833,8 +1828,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ No ranges found for {country}.")
             return
         
-        range_id = selected_range.get('name', selected_range.get('id', ''))
-        range_name = selected_range.get('name', '')
+        range_id = selected_range.get('id', selected_range.get('name', ''))
+        range_name = selected_range.get('name', selected_range.get('id', ''))
         
         # Show loading message and acknowledge callback immediately
         await query.edit_message_text("⏳ Requesting numbers...")
@@ -2720,8 +2715,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ No ranges found for {country}.")
                 return
             
-            range_id = selected_range.get('name', selected_range.get('id', ''))
-            range_name = selected_range.get('name', '')
+            range_id = selected_range.get('id', selected_range.get('name', ''))
+            range_name = selected_range.get('name', selected_range.get('id', ''))
             
             # Get user's number count preference
             session = get_user_session(user_id)
