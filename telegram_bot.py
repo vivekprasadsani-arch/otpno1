@@ -494,11 +494,8 @@ class APIClient:
                 )
 
                 
-                logger.info(f"get_ranges response status: {resp.status_code}")
-                
                 if resp.status_code == 200:
                     data = resp.json()
-                    logger.info(f"get_ranges response data keys: {data.keys() if data else 'None'}")
                     ranges = data.get('data', []) if data else []
                     logger.info(f"Got {len(ranges) if ranges else 0} ranges for {app_origin}")
                     return ranges if ranges else []
@@ -580,9 +577,10 @@ class APIClient:
                     return None
             
             headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.auth_token}",
-                **{k: v for k, v in self.browser_headers.items() if k != "Content-Type"}
+                "Accept": "application/json, text/plain, */*",
+                "mauthtoken": self.auth_token,  # Custom header
+                "Origin": self.base_url,
+                "Referer": f"{self.base_url}/mdashboard/access"
             }
             headers["Referer"] = f"{self.base_url}/mdashboard"
             
