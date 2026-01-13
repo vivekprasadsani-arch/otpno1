@@ -366,6 +366,7 @@ def resolve_app_id(service_name, context):
 # API Functions (from otp_tool.py)
 class APIClient:
     def __init__(self):
+        logger.info("🔧 APIClient v2.0 - stexsms.com migration")
         self.base_url = BASE_URL
         # Use curl_cffi if available (best for Cloudflare bypass)
         if HAS_CURL_CFFI:
