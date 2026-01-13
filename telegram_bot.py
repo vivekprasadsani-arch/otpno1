@@ -2475,9 +2475,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         service_name = service_map[text]
         app_id_map = {
-            "whatsapp": "verifyed-access-whatsapp",
-            "facebook": "verifyed-access-facebook",
-            "telegram": "verifyed-access-telegram"
+            "whatsapp": "whatsapp",
+            "facebook": "facebook",
+            "telegram": "telegram"
         }
         app_id = app_id_map.get(service_name)
         
@@ -2568,9 +2568,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         service_map = {
-            "whatsapp": "verifyed-access-whatsapp",
-            "facebook": "verifyed-access-facebook",
-            "telegram": "verifyed-access-telegram"
+            "whatsapp": "whatsapp",
+            "facebook": "facebook",
+            "telegram": "telegram"
         }
         
         # Search for range across all services
