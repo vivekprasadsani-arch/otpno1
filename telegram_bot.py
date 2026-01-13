@@ -559,6 +559,8 @@ class APIClient:
                 timeout=15
             )
             
+            logger.info(f"get_number response for {range_id}: {resp.status_code} - {resp.text[:500]}")
+
             if resp.status_code == 200:
                 data = resp.json()
                 if 'data' in data:
@@ -2519,6 +2521,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not country:
                     country = 'Unknown'
                 
+                # Filter out false positives for country detection (e.g., "55" -> Brazil)
+                # If range name is just digits and short, don't trust it as country code
+                range_clean = str(range_name).strip()
+                if country != 'Unknown' and range_clean.isdigit() and len(range_clean) < 4:
+                    # It's likely just a range ID, not a country prefix
+                    country = 'Unknown'
+
                 if country not in country_ranges:
                     country_ranges[country] = []
                 country_ranges[country].append(r)
