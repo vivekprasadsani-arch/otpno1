@@ -56,7 +56,7 @@ OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1002724043027"))  # Channel I
 # API Configuration (from otp_tool.py)
 BASE_URL = "https://v2.mnitnetwork.com"
 API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
-API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Dove")
+API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
 
 # Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
@@ -3273,5 +3273,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
