@@ -447,6 +447,24 @@ class APIClient:
                     return False
                 
                 self.auth_token = login_data['data']['token']
+                
+                # Manually extract and set cookies from response
+                # The API sets mauthtoken cookie which is used for authentication
+                if 'Set-Cookie' in login_resp.headers or 'set-cookie' in login_resp.headers:
+                    cookie_header = login_resp.headers.get('Set-Cookie') or login_resp.headers.get('set-cookie')
+                    logger.info(f"Setting cookies from login response")
+                    # Extract mauthtoken from Set-Cookie header
+                    if 'mauthtoken=' in cookie_header:
+                        # Parse cookie value
+                        cookie_parts = cookie_header.split(';')
+                        for part in cookie_parts:
+                            if 'mauthtoken=' in part:
+                                cookie_value = part.split('=', 1)[1]
+                                # Set cookie in session
+                                self.session.cookies.set('mauthtoken', cookie_value, domain='stexsms.com', path='/')
+                                logger.info(f"Set mauthtoken cookie")
+                                break
+                
                 logger.info("Login successful")
                 return True
             else:
