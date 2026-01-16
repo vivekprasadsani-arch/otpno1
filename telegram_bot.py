@@ -400,55 +400,66 @@ class APIClient:
         }
         self._ranges_cache = {}  # Cache structure: {app_id: {'timestamp': time.time(), 'data': [...]}}
         self._cache_duration = 300  # 5 minutes cache
+        
+        # Internal lock for thread safety (login/token refresh)
+        self._lock = threading.Lock()
     
     def login(self):
-        """Login to API - Using hypothesized endpoint /mapi/v1/mauth/login based on stexsms structure"""
-        try:
-            login_headers = {
-                **self.browser_headers,
-                "Referer": f"{self.base_url}/mdashboard/access"
-            }
-            # Hypothesized login endpoint
-            login_url = f"{self.base_url}/mapi/v1/mauth/login"
-            
-            logger.info(f"Attempting login to {login_url}")
-            login_resp = self.session.post(
-                login_url,
-                json={"email": self.email, "password": self.password},
-                headers=login_headers,
-                timeout=15
-            )
-            
-            if login_resp.status_code in [200, 201]:
-                login_data = login_resp.json()
-                
-                # Check for token in response
-                token = None
-                if 'data' in login_data and 'token' in login_data['data']:
-                    token = login_data['data']['token']
-                elif 'token' in login_data:
-                    token = login_data['token']
-                elif 'meta' in login_data and 'token' in login_data['meta']:
-                    token = login_data['meta']['token']
-                
-                if token:
-                    self.auth_token = token
-                    self.session.headers.update({"mauthtoken": self.auth_token})
-                    logger.info("Login successful")
-                    return True
-                else:
-                    logger.error(f"Login response missing token: {login_data}")
-            else:
-                logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
-                if login_resp.status_code == 404:
-                     logger.error("Login endpoint not found. Please check API documentation or provide a HAR with login.")
+        """Login to API - Thread-safe"""
+        # Ensure only one thread performs login at a time
+        with self._lock:
+            # Double-check if another thread already logged in successfully
+            if self.auth_token:
+                # We could test validity here, but simplified to just return True if recently updated?
+                # For now, let's allow re-login to be safe, but only one at a time.
+                pass
 
-            return False
-        except Exception as e:
-            logger.error(f"Login error: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return False
+            try:
+                login_headers = {
+                    **self.browser_headers,
+                    "Referer": f"{self.base_url}/mdashboard/access"
+                }
+                # Hypothesized login endpoint
+                login_url = f"{self.base_url}/mapi/v1/mauth/login"
+                
+                logger.info(f"Attempting login to {login_url}")
+                login_resp = self.session.post(
+                    login_url,
+                    json={"email": self.email, "password": self.password},
+                    headers=login_headers,
+                    timeout=15
+                )
+                
+                if login_resp.status_code in [200, 201]:
+                    login_data = login_resp.json()
+                    
+                    # Check for token in response
+                    token = None
+                    if 'data' in login_data and 'token' in login_data['data']:
+                        token = login_data['data']['token']
+                    elif 'token' in login_data:
+                        token = login_data['token']
+                    elif 'meta' in login_data and 'token' in login_data['meta']:
+                        token = login_data['meta']['token']
+                    
+                    if token:
+                        self.auth_token = token
+                        self.session.headers.update({"mauthtoken": self.auth_token})
+                        logger.info("Login successful")
+                        return True
+                    else:
+                        logger.error(f"Login response missing token: {login_data}")
+                else:
+                    logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
+                    if login_resp.status_code == 404:
+                         logger.error("Login endpoint not found. Please check API documentation or provide a HAR with login.")
+
+                return False
+            except Exception as e:
+                logger.error(f"Login error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return False
     
     def _fetch_ranges_with_keyword(self, app_id, keyword, use_origin=True):
         """Helper to fetch ranges with a specific keyword"""
@@ -1961,9 +1972,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 session = get_user_session(user_id)
                 number_count = session.get('number_count', 2) if session else 2
                 
-                with api_lock:
-                    # Try range_name first, then range_id (like otp_tool.py)
-                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+                # with api_lock:
+                # Try range_name first, then range_id (like otp_tool.py)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
@@ -2268,11 +2279,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 session = get_user_session(user_id)
                 number_count = session.get('number_count', 2) if session else 2
                 
-                with api_lock:
-                    logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
-                    # Try range_name first, then range_id (like otp_tool.py)
-                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
-                    logger.info(f"get_multiple_numbers returned: {numbers_data}")
+                # with api_lock:
+                logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
+                # Try range_name first, then range_id (like otp_tool.py)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+                logger.info(f"get_multiple_numbers returned: {numbers_data}")
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
@@ -2632,8 +2643,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
             
             if not found_range:
-                await update.message.reply_text(f"❌ Range '{text}' not found in any service.")
-                return
+                # Fallback: Try directly with the input string as both name and ID
+                # Default to WhatsApp as it's the most common use case
+                found_service = "whatsapp"
+                range_name = text
+                range_id = text
+                # Try to detect service from previous context if possible, otherwise WhatsApp
+                message = f"⚠️ Range '{text}' not found in active list.\nTrying direct request via WhatsApp..."
+                await update.message.reply_text(message)
+                
+                # Create a pseudo found_range object
+                found_range = {
+                    'name': text,
+                    'id': text,
+                    'country': 'Unknown',
+                    'cantryName': 'Unknown',
+                    'operator': 'Unknown'
+                }
             
             # Found range - get numbers (like otp_tool.py)
             range_name = found_range.get('name', '')
@@ -2979,8 +3005,9 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
         # Check OTP for all numbers in one batch call - much faster (no lag)
         # Use timeout to prevent hanging
         try:
-            with api_lock:
-                otp_results = api_client.check_otp_batch(numbers)
+            # We don't use api_lock here anymore to allow high concurrency
+            # The APIClient.login method is now internally thread-safe
+            otp_results = api_client.check_otp_batch(numbers)
         except Exception as api_error:
             logger.error(f"API error in check_otp_batch: {api_error}")
             return  # Skip this check, will retry next interval
