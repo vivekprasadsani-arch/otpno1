@@ -461,7 +461,7 @@ class APIClient:
                 logger.error(traceback.format_exc())
                 return False
     
-    def _fetch_ranges_with_keyword(self, app_id, keyword, use_origin=True):
+    def _fetch_ranges_with_keyword(self, app_id, keyword, use_origin=True, prefix=""):
         """Helper to fetch ranges with a specific keyword"""
         try:
             if not self.auth_token:
@@ -475,7 +475,7 @@ class APIClient:
             
             # Build payload based on whether to use origin filter
             payload = {
-                "prefix": "",
+                "prefix": prefix,
                 "keyword": keyword
             }
             
@@ -592,7 +592,23 @@ class APIClient:
                         unique_range_names.add(range_name)
                         all_ranges.append(r)
             
-            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} using {len(keywords)} keywords (origin_filter={use_origin})")
+            # Extra searches for specific WhatsApp prefixes
+        if is_specific_service and 'whatsapp' in app_id.lower():
+            prefixes = ["225", "228", "229", "232", "236", "237", "244", "977"]
+            logger.info(f"Fetching extra ranges for WhatsApp prefixes: {prefixes}")
+            for pfx in prefixes:
+                ranges = self._fetch_ranges_with_keyword(app_id, "", use_origin, prefix=pfx)
+                count = 0
+                for r in ranges:
+                    range_name = r['name']
+                    if range_name not in unique_range_names:
+                        unique_range_names.add(range_name)
+                        all_ranges.append(r)
+                        count += 1
+                if count > 0:
+                     logger.info(f"Prefix {pfx}: Found {count} new ranges")
+
+        logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} using {len(keywords)} keywords (origin_filter={use_origin})")
             
             # Update cache
             self._ranges_cache[cache_key] = {
