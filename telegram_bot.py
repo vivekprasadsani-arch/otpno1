@@ -451,13 +451,7 @@ class APIClient:
             return False
     
     def _fetch_ranges_with_keyword(self, app_id, keyword, use_origin=True):
-        """Helper to fetch ranges with a specific keyword
-        
-        Args:
-            app_id: Service name (e.g., 'WhatsApp', 'Facebook')
-            keyword: Search keyword
-            use_origin: If True, filter by service (origin). If False, search all services.
-        """
+        """Helper to fetch ranges with a specific keyword"""
         try:
             if not self.auth_token:
                 return []
@@ -468,11 +462,17 @@ class APIClient:
                 "Referer": f"{self.base_url}/mdashboard/access"
             }
             
+            # Build payload based on whether to use origin filter
             payload = {
                 "prefix": "",
-                "origin": app_id if use_origin else "",  # Empty origin for "Others"
                 "keyword": keyword
             }
+            
+            # Only add origin if use_origin is True (for WhatsApp/Facebook)
+            if use_origin:
+                payload["origin"] = app_id
+            else:
+                payload["origin"] = ""  # Blank for Others
             
             resp = self.session.post(
                 f"{self.base_url}/mapi/v1/mdashboard/access/info",
@@ -491,17 +491,25 @@ class APIClient:
                         
                         range_val = item.get('test_number')
                         if range_val:
-                            ranges.append({
+                            range_obj = {
                                 'id': range_val,
                                 'range_id': str(item.get('id')),
                                 'name': range_val,
                                 'country': country,
                                 'cantryName': country,
                                 'operator': destination,
-                                'service': item.get('origin', 'Unknown'),  # Service name for Others
                                 'limit_day': item.get('limit_day'),
                                 'limit_hour': item.get('limit_hour')
-                            })
+                            }
+                            
+                            # For Others service, include the actual service name from API
+                            if not use_origin:
+                                service_name = item.get('origin', 'Unknown')
+                                range_obj['service'] = service_name
+                                # Append service to operator for display
+                                range_obj['operator'] = f"{destination} ({service_name})"
+                            
+                            ranges.append(range_obj)
                     return ranges
             return []
         except Exception as e:
@@ -509,13 +517,7 @@ class APIClient:
             return []
 
     def get_ranges(self, app_id, max_retries=3, keyword=""):
-        """Get ranges for application - Service + Keyword combination for diverse countries
-        
-        - WhatsApp/Facebook: Search with origin + multiple keywords
-        - Others: Search with multiple keywords only (no origin filter)
-        
-        Using service + keyword combination gives diverse country results.
-        """
+        """Get ranges for application - Service-specific keyword strategy"""
         try:
             if not self.auth_token:
                 if not self.login():
@@ -529,41 +531,57 @@ class APIClient:
                     logger.info(f"Returning cached ranges for {app_id}")
                     return entry['data']
             
-            # Determine if we should filter by service (origin)
-            # WhatsApp & Facebook: use origin filter
-            # Others: search all services (no origin filter)
-            use_origin = app_id in ["WhatsApp", "Facebook"]
+            # Determine if this is WhatsApp/Facebook or Others
+            is_specific_service = app_id.lower() in ['whatsapp', 'facebook']
+            
+            # Keywords for WhatsApp/Facebook (with origin filter)
+            specific_keywords = [
+                app_id,           # Service name itself
+                "code",           # Verification code
+                "whatsapp",       # WhatsApp specific
+                "business",       # Business accounts
+                "otp",            # One-time password
+                "verify",         # Verification
+                "authentication", # Auth messages
+                "login",          # Login codes
+                "sms",            # SMS messages
+                "",               # Empty for general
+            ]
+            
+            # Keywords for Others (no origin filter - broader search)
+            others_keywords = [
+                "code",           # Verification code
+                "otp",            # One-time password
+                "verify",         # Verification
+                "authentication", # Auth messages
+                "sms",            # SMS messages
+                "message",        # General messages
+                "notification",   # Notifications
+                "",               # Empty for general
+            ]
+            
+            # Select keywords and origin usage based on service type
+            if is_specific_service:
+                keywords = specific_keywords
+                use_origin = True
+            else:
+                keywords = others_keywords
+                use_origin = False
             
             all_ranges = []
-            unique_range_ids = set()
-            
-            # Multiple keywords to search - each keyword gives different country results
-            # This is the key to getting diverse countries!
-            keywords = [
-                app_id,           # e.g., "WhatsApp"
-                "verification",   # Common SMS keyword
-                "otp",           # OTP messages
-                "code",          # Verification codes
-                "sms",           # SMS keyword
-                "message",       # Message keyword
-                "auth",          # Authentication
-                "login",         # Login verification
-                "register",      # Registration
-                "confirm",       # Confirmation
-                "",              # Empty for general results
-            ]
+            unique_range_names = set()  # Use range name (phone number) for deduplication, not range_id
             
             for kw in keywords:
                 ranges = self._fetch_ranges_with_keyword(app_id, kw, use_origin)
                 
-                # Add only unique ranges (by range_id)
+                # Add only unique ranges (by range name/phone number pattern)
                 for r in ranges:
-                    if r['range_id'] not in unique_range_ids:
-                        unique_range_ids.add(r['range_id'])
+                    range_name = r['name']  # e.g., "37525XXXX"
+                    if range_name not in unique_range_names:
+                        unique_range_names.add(range_name)
                         all_ranges.append(r)
             
-            filter_type = "service-specific" if use_origin else "all services"
-            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} ({filter_type}) using {len(keywords)} keywords")
+            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} using {len(keywords)} keywords (origin_filter={use_origin})")
             
             # Update cache
             self._ranges_cache[cache_key] = {
@@ -1735,44 +1753,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Create country buttons - INLINE KEYBOARD
         keyboard = []
-        # Don't sort - preserve API order to show all countries (API limit is 100 items)
-        # Sorting alphabetically causes only "A" countries to appear
-        country_list = [c for c in country_ranges.keys() if c != 'Unknown']
+        country_list = [c for c in sorted(country_ranges.keys()) if c != 'Unknown']
         if 'Unknown' in country_ranges and len(country_list) == 0:
             country_list.append('Unknown')
 
-        # Check if this is "Others" service to show service labels
-        is_others = service_name == "others" or service_name.startswith("app")
-        
         for i in range(0, len(country_list), 2):
             row = []
             flag1 = get_country_flag(country_list[i])
-            
-            # For Others, show service name in button
-            if is_others and country_ranges[country_list[i]]:
-                # Get service from first range in this country
-                service_label = country_ranges[country_list[i]][0].get('service', '')
-                button_text = f"{flag1} {country_list[i]} | 📱 {service_label}"
-            else:
-                button_text = f"{flag1} {country_list[i]}"
-            
             row.append(InlineKeyboardButton(
-                button_text,
+                f"{flag1} {country_list[i]}",
                 callback_data=f"country_{service_name}_{country_list[i]}"
             ))
-            
             if i + 1 < len(country_list):
                 flag2 = get_country_flag(country_list[i + 1])
-                
-                # For Others, show service name in button
-                if is_others and country_ranges[country_list[i + 1]]:
-                    service_label = country_ranges[country_list[i + 1]][0].get('service', '')
-                    button_text = f"{flag2} {country_list[i + 1]} | 📱 {service_label}"
-                else:
-                    button_text = f"{flag2} {country_list[i + 1]}"
-                
                 row.append(InlineKeyboardButton(
-                    button_text,
+                    f"{flag2} {country_list[i + 1]}",
                     callback_data=f"country_{service_name}_{country_list[i + 1]}"
                 ))
             keyboard.append(row)
@@ -1780,9 +1775,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        service_display = "OTHERS" if is_others else service_name.upper()
         await query.edit_message_text(
-            f"📱 {service_display} - Select Country:",
+            f"📱 {service_name.upper()} - Select Country:",
             reply_markup=reply_markup
         )
         return
@@ -2467,13 +2461,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎯 Select a service:",
             reply_markup=reply_markup
         )
-        return
-    
-    # Handle direct range input (e.g., 244912XXX) - skip service selection
-    # Check if message matches range pattern
-    if re.match(r'^\d{6,}X+$', text, re.IGNORECASE):
-        # User typed a range directly - call rangechkr logic
-        await rangechkr(update, context)
         return
     
     # Handle "Set Number Count" button
