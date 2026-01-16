@@ -509,13 +509,12 @@ class APIClient:
             return []
 
     def get_ranges(self, app_id, max_retries=3, keyword=""):
-        """Get ranges for application - Service-specific fetching with diverse countries
+        """Get ranges for application - Service + Keyword combination for diverse countries
         
-        - WhatsApp/Facebook: Search with origin filter (service-specific)
-        - Others: Search without origin filter (all services, with service labels)
+        - WhatsApp/Facebook: Search with origin + multiple keywords
+        - Others: Search with multiple keywords only (no origin filter)
         
-        To overcome API's alphabetical sorting (only "A" countries in 100-item limit),
-        we fetch from multiple country prefixes to get diverse results.
+        Using service + keyword combination gives diverse country results.
         """
         try:
             if not self.auth_token:
@@ -538,83 +537,33 @@ class APIClient:
             all_ranges = []
             unique_range_ids = set()
             
-            # Strategy: Fetch from multiple country prefixes to get diverse countries
-            # API returns alphabetically sorted, so we need to query different prefixes
-            # Select representative prefixes from different regions
-            diverse_prefixes = [
-                "",      # Empty for general (gets "A" countries)
-                "1",     # Americas
-                "2",     # Africa
-                "3",     # Europe
-                "4",     # Europe
-                "5",     # Latin America
-                "6",     # Southeast Asia
-                "7",     # Russia/Kazakhstan
-                "8",     # East Asia
-                "9",     # Middle East/South Asia
+            # Multiple keywords to search - each keyword gives different country results
+            # This is the key to getting diverse countries!
+            keywords = [
+                app_id,           # e.g., "WhatsApp"
+                "verification",   # Common SMS keyword
+                "otp",           # OTP messages
+                "code",          # Verification codes
+                "sms",           # SMS keyword
+                "message",       # Message keyword
+                "auth",          # Authentication
+                "login",         # Login verification
+                "register",      # Registration
+                "confirm",       # Confirmation
+                "",              # Empty for general results
             ]
             
-            for prefix in diverse_prefixes:
-                # Fetch ranges with this prefix
-                ranges = self._fetch_ranges_with_keyword(app_id, "", use_origin)
+            for kw in keywords:
+                ranges = self._fetch_ranges_with_keyword(app_id, kw, use_origin)
                 
-                # For non-empty prefixes, override payload to use prefix filter
-                if prefix:
-                    try:
-                        headers = {
-                            **self.browser_headers,
-                            "mauthtoken": self.auth_token,
-                            "Referer": f"{self.base_url}/mdashboard/access"
-                        }
-                        
-                        payload = {
-                            "prefix": prefix,
-                            "origin": app_id if use_origin else "",
-                            "keyword": ""
-                        }
-                        
-                        resp = self.session.post(
-                            f"{self.base_url}/mapi/v1/mdashboard/access/info",
-                            json=payload,
-                            headers=headers,
-                            timeout=15
-                        )
-                        
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
-                                for item in data['data']:
-                                    destination = item.get('destination', 'Unknown')
-                                    country = destination.split('-')[0].strip() if '-' in destination else destination
-                                    
-                                    range_val = item.get('test_number')
-                                    range_id = str(item.get('id'))
-                                    
-                                    if range_val and range_id not in unique_range_ids:
-                                        unique_range_ids.add(range_id)
-                                        all_ranges.append({
-                                            'id': range_val,
-                                            'range_id': range_id,
-                                            'name': range_val,
-                                            'country': country,
-                                            'cantryName': country,
-                                            'operator': destination,
-                                            'service': item.get('origin', 'Unknown'),
-                                            'limit_day': item.get('limit_day'),
-                                            'limit_hour': item.get('limit_hour')
-                                        })
-                    except Exception as e:
-                        logger.warning(f"Error fetching prefix {prefix}: {e}")
-                        continue
-                else:
-                    # Empty prefix - use keyword-based fetch
-                    for r in ranges:
-                        if r['range_id'] not in unique_range_ids:
-                            unique_range_ids.add(r['range_id'])
-                            all_ranges.append(r)
+                # Add only unique ranges (by range_id)
+                for r in ranges:
+                    if r['range_id'] not in unique_range_ids:
+                        unique_range_ids.add(r['range_id'])
+                        all_ranges.append(r)
             
             filter_type = "service-specific" if use_origin else "all services"
-            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} ({filter_type}) from {len(diverse_prefixes)} prefixes")
+            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} ({filter_type}) using {len(keywords)} keywords")
             
             # Update cache
             self._ranges_cache[cache_key] = {
