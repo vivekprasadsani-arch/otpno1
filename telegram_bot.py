@@ -2,10 +2,11 @@ import os
 import threading
 import time
 import asyncio
+import concurrent.futures
+from datetime import datetime, timedelta, timezone
 from datetime import datetime, timedelta, timezone
 import requests
 import json
-import concurrent.futures
 import re
 import hashlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
@@ -384,10 +385,6 @@ class APIClient:
         self.auth_token = None
         self.email = API_EMAIL
         self.password = API_PASSWORD
-        # Cache for ranges
-        self.range_cache = {} # Format: {service_name: {'timestamp': time, 'data': [ranges]}}
-        self.cache_ttl = 300 # 5 minutes TTL
-        
         # Browser-like headers to avoid session expiration and Cloudflare - EXACT same as otp_tool.py
         self.browser_headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Mobile Safari/537.36",
@@ -401,188 +398,189 @@ class APIClient:
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty"
         }
+        self._ranges_cache = {}  # Cache structure: {app_id: {'timestamp': time.time(), 'data': [...]}}
+        self._cache_duration = 300  # 5 minutes cache
     
     def login(self):
-        """Login to API and get auth token"""
-        logger.info(f"Attempting to login to {self.base_url}...")
-        
-        payload = {
-            "email": self.email,
-            "password": self.password,
-            "type": "1" # Assuming type 1 for standard user
-        }
-        
+        """Login to API - Using hypothesized endpoint /mapi/v1/mauth/login based on stexsms structure"""
         try:
-            # Login endpoint
+            login_headers = {
+                **self.browser_headers,
+                "Referer": f"{self.base_url}/mdashboard/access"
+            }
+            # Hypothesized login endpoint
             login_url = f"{self.base_url}/mapi/v1/mauth/login"
             
-            headers = {
-                **self.browser_headers
-            }
+            logger.info(f"Attempting login to {login_url}")
+            login_resp = self.session.post(
+                login_url,
+                json={"email": self.email, "password": self.password},
+                headers=login_headers,
+                timeout=15
+            )
             
-            response = self.session.post(login_url, json=payload, headers=headers, timeout=20)
-            
-            if response.status_code == 200:
-                data = response.json()
+            if login_resp.status_code in [200, 201]:
+                login_data = login_resp.json()
                 
-                # Check for success in meta or root
-                is_success = False
-                if data.get('status') == 'success' or data.get('code') == 200:
-                    is_success = True
-                elif 'meta' in data and (data['meta'].get('code') == 200 or data['meta'].get('status') == 'success'):
-                    is_success = True
-                elif 'message' in data and 'success' in data['message'].lower():
-                    is_success = True
+                # Check for token in response
+                token = None
+                if 'data' in login_data and 'token' in login_data['data']:
+                    token = login_data['data']['token']
+                elif 'token' in login_data:
+                    token = login_data['token']
+                elif 'meta' in login_data and 'token' in login_data['meta']:
+                    token = login_data['meta']['token']
                 
-                # If success or token present
-                token = data.get('data', {}).get('token')
-                
-                if is_success or token:
-                    if token:
-                        self.auth_token = token
-                        logger.info("Login successful (token retrieved)")
-                        return True
-                    else:
-                         logger.error("Login successful but no token found in data")
+                if token:
+                    self.auth_token = token
+                    self.session.headers.update({"mauthtoken": self.auth_token})
+                    logger.info("Login successful")
+                    return True
                 else:
-                    logger.error(f"Login failed: API returned error {data}")
+                    logger.error(f"Login response missing token: {login_data}")
             else:
-                 logger.error(f"Login failed: HTTP {response.status_code}")
-                 
+                logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
+                if login_resp.status_code == 404:
+                     logger.error("Login endpoint not found. Please check API documentation or provide a HAR with login.")
+
+            return False
         except Exception as e:
             logger.error(f"Login error: {e}")
-            
-        return False
-
-    def get_all_ranges(self, service="WhatsApp"):
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _fetch_ranges_with_keyword(self, app_id, keyword, use_origin=True):
+        """Helper to fetch ranges with a specific keyword
+        
+        Args:
+            app_id: Service name (e.g., 'WhatsApp', 'Facebook')
+            keyword: Search keyword
+            use_origin: If True, filter by service (origin). If False, search all services.
         """
-        Concurrently fetch ranges for all known country prefixes.
-        Results are aggregated and cached.
-        """
-        # Check cache first
-        now = time.time()
-        cached = self.range_cache.get(service)
-        if cached:
-            if now - cached['timestamp'] < self.cache_ttl:
-                logger.info(f"Returning cached ranges for {service} ({len(cached['data'])} items)")
-                return cached['data']
-            else:
-                logger.info(f"Cache expired for {service}")
-        
-        # Prepare for concurrent fetching
-        all_ranges = []
-        country_prefixes = list(COUNTRY_CODES.keys())
-        
-        # We need to filter only numeric prefixes that are actual country codes
-        valid_prefixes = [p for p in country_prefixes if p.isdigit()]
-        
-        headers = {
-            **self.browser_headers,
-            "mauthtoken": self.auth_token,
-            "Referer": f"{self.base_url}/mdashboard/access"
-        }
-        
-        logger.info(f"Starting concurrent fetch for {len(valid_prefixes)} prefixes...")
-        
-        def fetch_prefix(prefix):
-            try:
-                # Use service as keyword too? The user said "keyword and service result is good".
-                # But benchmark showed prefix is main driver.
-                # Let's stick to prefix + origin=service.
-                payload = {"prefix": prefix, "origin": service, "keyword": ""}
-                resp = self.session.post(
-                    f"{self.base_url}/mapi/v1/mdashboard/access/info",
-                    headers=headers,
-                    json=payload,
-                    timeout=10
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return data.get('data', [])
-                return []
-            except Exception:
-                return []
-
-        # Use ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            future_to_prefix = {executor.submit(fetch_prefix, prefix): prefix for prefix in valid_prefixes}
-            
-            for future in concurrent.futures.as_completed(future_to_prefix):
-                try:
-                    ranges = future.result()
-                    if ranges:
-                        all_ranges.extend(ranges)
-                except Exception:
-                    pass
-        
-        # Deduplicate ranges (based on test_number which should be unique)
-        unique_ranges = {}
-        for r in all_ranges:
-            # Use test_number as primary key, fallback to id+destination
-            key = r.get('test_number')
-            if not key:
-                 # Fallback
-                 r_id = r.get('id')
-                 dest = r.get('destination', 'unknown')
-                 key = f"{r_id}_{dest}"
-            
-            unique_ranges[key] = r
-                
-        final_list = list(unique_ranges.values())
-        logger.info(f"Concurrent fetch complete. Found {len(final_list)} unique ranges (raw count: {len(all_ranges)}).")
-        
-        # Update cache
-        self.range_cache[service] = {
-            'timestamp': now,
-            'data': final_list
-        }
-        
-        return final_list
-
-    def get_ranges(self, service="WhatsApp"):
-        """Get available number ranges (concurrently for all countries)"""
-        if not self.auth_token:
-            if not self.login():
-                return []
-        
-        # Use new concurrent fetching method
-        return self.get_all_ranges(service)
-
-    def get_applications(self):
-        """Get available applications/services"""
-        # This remains unchanged as it likely returns a small list
-        # But technically we can use the same endpoint if needed.
-        # For now, keep original implementation or minimal update if needed.
-         
-        # Re-implementing get_applications to match the previous structure but ensure it works
-        if not self.auth_token:
-           if not self.login():
-               return []
-               
-        # Usually applications are just static or simple fetch.
-        # Based on HAR, it was also access/info.
         try:
-           headers = {
-               **self.browser_headers,
-               "mauthtoken": self.auth_token
-           }
-           # Try generic fetch to see available services? 
-           # Or just return static list if dynamic isn't needed.
-           # The bot uses SERVICE_APP_IDS.
-           # Let's try to fetch dynamic list if possible.
-           payload = {"prefix": "", "origin": "", "keyword": ""} 
-           resp = self.session.post(
-               f"{self.base_url}/mapi/v1/mdashboard/access/info",
-               headers=headers,
-               json=payload,
-               timeout=10
-           )
-           data = resp.json()
-           # If this endpoint returns ranges, it might not return "applications".
-           # Assume hardcoded services are fine for now (WhatsApp/Facebook).
-           return [] 
-        except Exception:
+            if not self.auth_token:
+                return []
+            
+            headers = {
+                **self.browser_headers,
+                "mauthtoken": self.auth_token,
+                "Referer": f"{self.base_url}/mdashboard/access"
+            }
+            
+            payload = {
+                "prefix": "",
+                "origin": app_id if use_origin else "",  # Empty origin for "Others"
+                "keyword": keyword
+            }
+            
+            resp = self.session.post(
+                f"{self.base_url}/mapi/v1/mdashboard/access/info",
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
+                    ranges = []
+                    for item in data['data']:
+                        destination = item.get('destination', 'Unknown')
+                        country = destination.split('-')[0].strip() if '-' in destination else destination
+                        
+                        range_val = item.get('test_number')
+                        if range_val:
+                            ranges.append({
+                                'id': range_val,
+                                'range_id': str(item.get('id')),
+                                'name': range_val,
+                                'country': country,
+                                'cantryName': country,
+                                'operator': destination,
+                                'service': item.get('origin', 'Unknown'),  # Service name for Others
+                                'limit_day': item.get('limit_day'),
+                                'limit_hour': item.get('limit_hour')
+                            })
+                    return ranges
             return []
+        except Exception as e:
+            logger.warning(f"Error fetching with keyword '{keyword}': {e}")
+            return []
+
+    def get_ranges(self, app_id, max_retries=3, keyword=""):
+        """Get ranges for application - Service-specific fetching
+        
+        - WhatsApp/Facebook: Search with origin filter (service-specific)
+        - Others: Search without origin filter (all services, with service labels)
+        """
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return []
+            
+            # Check cache first
+            cache_key = f"{app_id}_multi"
+            if cache_key in self._ranges_cache:
+                entry = self._ranges_cache[cache_key]
+                if time.time() - entry['timestamp'] < self._cache_duration:
+                    logger.info(f"Returning cached ranges for {app_id}")
+                    return entry['data']
+            
+            # Determine if we should filter by service (origin)
+            # WhatsApp & Facebook: use origin filter
+            # Others: search all services (no origin filter)
+            use_origin = app_id in ["WhatsApp", "Facebook"]
+            
+            # Multiple keywords to search - aggregates more results
+            keywords = [
+                app_id,           # e.g., "WhatsApp"
+                "verification",   # Common SMS keyword
+                "otp",           # OTP messages
+                "code",          # Verification codes
+                "",              # Empty for general results
+            ]
+            
+            all_ranges = []
+            unique_range_ids = set()
+            
+            for kw in keywords:
+                ranges = self._fetch_ranges_with_keyword(app_id, kw, use_origin)
+                
+                # Add only unique ranges (by range_id)
+                for r in ranges:
+                    if r['range_id'] not in unique_range_ids:
+                        unique_range_ids.add(r['range_id'])
+                        all_ranges.append(r)
+            
+            filter_type = "service-specific" if use_origin else "all services"
+            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} ({filter_type}) using {len(keywords)} keywords")
+            
+            # Update cache
+            self._ranges_cache[cache_key] = {
+                'timestamp': time.time(),
+                'data': all_ranges
+            }
+            
+            return all_ranges
+            
+        except Exception as e:
+            logger.error(f"Error getting ranges: {e}")
+            return []
+
+    def get_applications(self, max_retries=3):
+        """Get available applications - Mapped from SERVICE_APP_IDS for compatibility"""
+        # The new API doesn't list "all apps" easily, we search by name.
+        # But for 'Others' menu, we might want to return some defaults or nothing.
+        # Current bot logic allows 'Others' to fetch dynamic list.
+        # For now, we return the primary ones + maybe some popular ones if we want?
+        # Or simply return empty list for others if we don't support dynamic discovery yet.
+        # Let's return the primary ones to ensure they appear if needed.
+        apps = []
+        for name, app_id in SERVICE_APP_IDS.items():
+            apps.append({'id': app_id, 'name': app_id})
+        return apps
+    
     def get_number(self, range_id):
         """Request a number from a range"""
         try:
@@ -1732,17 +1730,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 'Unknown' in country_ranges and len(country_list) == 0:
             country_list.append('Unknown')
 
+        # Check if this is "Others" service to show service labels
+        is_others = service_name == "others" or service_name.startswith("app")
+        
         for i in range(0, len(country_list), 2):
             row = []
             flag1 = get_country_flag(country_list[i])
+            
+            # For Others, show service name in button
+            if is_others and country_ranges[country_list[i]]:
+                # Get service from first range in this country
+                service_label = country_ranges[country_list[i]][0].get('service', '')
+                button_text = f"{flag1} {country_list[i]} | 📱 {service_label}"
+            else:
+                button_text = f"{flag1} {country_list[i]}"
+            
             row.append(InlineKeyboardButton(
-                f"{flag1} {country_list[i]}",
+                button_text,
                 callback_data=f"country_{service_name}_{country_list[i]}"
             ))
+            
             if i + 1 < len(country_list):
                 flag2 = get_country_flag(country_list[i + 1])
+                
+                # For Others, show service name in button
+                if is_others and country_ranges[country_list[i + 1]]:
+                    service_label = country_ranges[country_list[i + 1]][0].get('service', '')
+                    button_text = f"{flag2} {country_list[i + 1]} | 📱 {service_label}"
+                else:
+                    button_text = f"{flag2} {country_list[i + 1]}"
+                
                 row.append(InlineKeyboardButton(
-                    f"{flag2} {country_list[i + 1]}",
+                    button_text,
                     callback_data=f"country_{service_name}_{country_list[i + 1]}"
                 ))
             keyboard.append(row)
@@ -1750,8 +1769,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        service_display = "OTHERS" if is_others else service_name.upper()
         await query.edit_message_text(
-            f"📱 {service_name.upper()} - Select Country:",
+            f"📱 {service_display} - Select Country:",
             reply_markup=reply_markup
         )
         return
@@ -2436,6 +2456,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎯 Select a service:",
             reply_markup=reply_markup
         )
+        return
+    
+    # Handle direct range input (e.g., 244912XXX) - skip service selection
+    # Check if message matches range pattern
+    if re.match(r'^\d{6,}X+$', text, re.IGNORECASE):
+        # User typed a range directly - call rangechkr logic
+        await rangechkr(update, context)
         return
     
     # Handle "Set Number Count" button
