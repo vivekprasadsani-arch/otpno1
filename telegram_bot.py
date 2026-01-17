@@ -71,6 +71,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 SERVICE_APP_IDS = {
     "whatsapp": "WhatsApp",
     "facebook": "Facebook",
+    "telegram": "Telegram",
 }
 
 def init_database():
@@ -504,8 +505,10 @@ class APIClient:
                         if range_val:
                             range_obj = {
                                 'id': range_val,
-                                'range_id': str(item.get('id')),
+                                'numerical_id': str(item.get('id')), # Use this primarily for buying
+                                'range_id': str(item.get('id')), # Compatibility
                                 'name': range_val,
+                                'pattern': range_val,
                                 'country': country,
                                 'cantryName': country,
                                 'operator': destination,
@@ -542,8 +545,8 @@ class APIClient:
                     logger.info(f"Returning cached ranges for {app_id}")
                     return entry['data']
             
-            # Determine if this is WhatsApp/Facebook or Others
-            is_specific_service = app_id.lower() in ['whatsapp', 'facebook']
+            # Determine if this is WhatsApp/Facebook/Telegram or Others
+            is_specific_service = app_id.lower() in ['whatsapp', 'facebook', 'telegram']
             
             # Keywords for WhatsApp/Facebook (with origin filter)
             specific_keywords = [
@@ -571,9 +574,14 @@ class APIClient:
             if is_specific_service:
                 keywords = specific_keywords
                 use_origin = True
-            else:
+            elif app_id.lower() == "others":
                 keywords = others_keywords
                 use_origin = False
+            else:
+                # Specific other service (e.g. Google, Instagram)
+                # Search using the service name itself with origin filter
+                keywords = [app_id]
+                use_origin = True
             
             all_ranges = []
             unique_range_names = set()  # Use range name (phone number) for deduplication, not range_id
@@ -1427,6 +1435,7 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
         [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
+        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
         [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1993,8 +2002,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ No ranges found for {country}.")
             return
         
-        range_id = selected_range.get('name', selected_range.get('id', ''))
-        range_name = selected_range.get('name', '')
+        range_id = selected_range.get('numerical_id', selected_range.get('range_id', selected_range.get('id', '')))
+        range_name = selected_range.get('pattern', selected_range.get('name', ''))
         
         # Show loading message and acknowledge callback immediately
         await query.edit_message_text("⏳ Requesting numbers...")
@@ -2265,9 +2274,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(filtered_ranges), 2):
                 row = []
                 range1 = filtered_ranges[i]
-                range_name1 = range1.get('name', range1.get('id', ''))
-                range_id1 = range1.get('name') or range1.get('id', '')
-                range_id_field1 = range1.get('id', '')
+                range_name1 = range1.get('pattern', range1.get('name', ''))
+                range_id1 = range1.get('numerical_id') or range1.get('range_id') or range_name1
+                range_id_field1 = range1.get('range_id') or range1.get('numerical_id') or ''
                 actual_service = service_name # Use the service/app ID we are browsing
                 
                 range_hash1 = hashlib.md5(f"{actual_service}_{range_id1}".encode()).hexdigest()[:12]
@@ -2282,9 +2291,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if i + 1 < len(filtered_ranges):
                     range2 = filtered_ranges[i + 1]
-                    range_name2 = range2.get('name', range2.get('id', ''))
-                    range_id2 = range2.get('name') or range2.get('id', '')
-                    range_id_field2 = range2.get('id', '')
+                    range_name2 = range2.get('pattern', range2.get('name', ''))
+                    range_id2 = range2.get('numerical_id') or range2.get('range_id') or range_name2
+                    range_id_field2 = range2.get('range_id') or range2.get('numerical_id') or ''
                     actual_service2 = service_name
                     
                     range_hash2 = hashlib.md5(f"{actual_service2}_{range_id2}".encode()).hexdigest()[:12]
@@ -2654,6 +2663,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
             [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
             [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2667,6 +2677,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
             [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
             [InlineKeyboardButton("✨ Others", callback_data="service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2691,6 +2702,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
             [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
             [InlineKeyboardButton("✨ Others", callback_data="service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
