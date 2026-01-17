@@ -543,7 +543,7 @@ class APIClient:
                     return entry['data']
             
             # Determine if this is WhatsApp/Facebook or Others
-            is_specific_service = app_id.lower() in ['whatsapp', 'facebook']
+            is_specific_service = 'whatsapp' in app_id.lower() or 'facebook' in app_id.lower()
             
             # Keywords for WhatsApp/Facebook (with origin filter)
             specific_keywords = [
