@@ -481,7 +481,14 @@ class APIClient:
             
             # Only add origin if use_origin is True (for WhatsApp/Facebook)
             if use_origin:
-                payload["origin"] = app_id
+                # Map internal IDs to API expected origin names
+                origin_val = app_id
+                if 'whatsapp' in app_id.lower():
+                     origin_val = "WhatsApp"
+                elif 'facebook' in app_id.lower():
+                     origin_val = "Facebook"
+                
+                payload["origin"] = origin_val
             else:
                 payload["origin"] = ""  # Blank for Others
             
