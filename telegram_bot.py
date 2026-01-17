@@ -560,6 +560,7 @@ class APIClient:
             ]
             
             # Keywords for Others (no origin filter - broader search)
+            others_keywords = [
                 "code", "otp", "verify", "verification", "auth", "authentication",
                 "login", "register", "signup", "sms", "message", "secret", "validate",
                 "confirm", "app", "mobile", "phone", "text", "security", "pass",
@@ -569,6 +570,7 @@ class APIClient:
                 "discord", "snapchat", "tiktok", "wechat", "line", "signal", "uber", "grab", 
                 "bolt", "amazon", "google", "apple", "microsoft", "netflix", "paypal", 
                 "coinbase", "binance", "bank", "pay", "wallet", "card", "delivery"
+            ]
             
             # Select keywords and origin usage based on service type
             if is_specific_service:
