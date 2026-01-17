@@ -560,16 +560,15 @@ class APIClient:
             ]
             
             # Keywords for Others (no origin filter - broader search)
-            others_keywords = [
-                "code",           # Verification code
-                "otp",            # One-time password
-                "verify",         # Verification
-                "authentication", # Auth messages
-                "sms",            # SMS messages
-                "message",        # General messages
-                "notification",   # Notifications
-                "",               # Empty for general
-            ]
+                "code", "otp", "verify", "verification", "auth", "authentication",
+                "login", "register", "signup", "sms", "message", "secret", "validate",
+                "confirm", "app", "mobile", "phone", "text", "security", "pass",
+                "password", "pin", "tan", "token", "link", "activation", "notify",
+                "alert", "info", "access", "verification code", "confirm code",
+                "whatsapp", "telegram", "imo", "viber", "facebook", "twitter", "instagram",
+                "discord", "snapchat", "tiktok", "wechat", "line", "signal", "uber", "grab", 
+                "bolt", "amazon", "google", "apple", "microsoft", "netflix", "paypal", 
+                "coinbase", "binance", "bank", "pay", "wallet", "card", "delivery"
             
             # Select keywords and origin usage based on service type
             if is_specific_service:
@@ -1705,49 +1704,75 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # If Others clicked, first show dynamic service list (excluding WhatsApp/Facebook)
+        # If Others clicked, fetch ranges broadly and discover services
         if service_name == "others":
             try:
-                with api_lock:
-                    apps = api_client.get_applications()
-                if not apps:
-                    await query.edit_message_text("❌ No services found.")
+                await query.edit_message_text("⏳ Searching services (broad search)...")
+                # Use "others" to trigger the broad keyword search
+                ranges = api_client.get_ranges("others")
+                if not ranges:
+                    await query.edit_message_text("❌ No ranges found via broad search.")
                     return
 
-                primary_ids = set(SERVICE_APP_IDS.values())
-                other_apps = []
-                for app in apps:
-                    app_id = app.get('appId') or app.get('id')
-                    app_name = app.get('name') or app.get('application') or app_id
-                    if app_id and app_id not in primary_ids:
-                        other_apps.append({"id": app_id, "name": app_name})
+                # Group ranges by Service (origin)
+                services = {}
+                for r in ranges:
+                     # Service name is in 'service' field (from origin)
+                     svc = r.get('service', 'Other')
+                     if not svc: svc = 'Other'
+                     svc_clean = svc.strip()
+                     if not svc_clean: svc_clean = 'Other'
+                     services.setdefault(svc_clean, []).append(r)
+                
+                # Check if we have anything
+                if not services:
+                     await query.edit_message_text("❌ No services discovered.")
+                     return
 
-                if not other_apps:
-                    await query.edit_message_text("❌ No other services available.")
-                    return
-
-                context.user_data['other_services'] = other_apps
-                context.user_data.setdefault('custom_services', {})
-
+                # Create Service Buttons
                 keyboard = []
-                for idx, app in enumerate(other_apps):
-                    label = app['name'] or app['id']
-                    keyboard.append([InlineKeyboardButton(label, callback_data=f"serviceapp_{idx}")])
+                sorted_services = sorted(services.keys())
+                
+                for i in range(0, len(sorted_services), 2):
+                    row = []
+                    s1 = sorted_services[i]
+                    count1 = len(services[s1])
+                    # Use service_{ServiceName} callback
+                    row.append(InlineKeyboardButton(f"{s1} ({count1})", callback_data=f"service_{s1}"))
+                    
+                    if i+1 < len(sorted_services):
+                        s2 = sorted_services[i+1]
+                        count2 = len(services[s2])
+                        row.append(InlineKeyboardButton(f"{s2} ({count2})", callback_data=f"service_{s2}"))
+                    keyboard.append(row)
+                
                 keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text("📋 Select a service:", reply_markup=reply_markup)
+                await query.edit_message_text("📋 Discovered Services:", reply_markup=reply_markup)
             except Exception as e:
                 logger.error(f"Error loading applications: {e}")
-                await query.edit_message_text("❌ Failed to load services. Please try again.")
+                await query.edit_message_text(f"❌ Failed to load services: {e}")
             return
         
-        # For primary services (WhatsApp/Facebook)
+        # For primary services (WhatsApp/Facebook) OR Discovered Services
         app_id = resolve_app_id(service_name, context)
+        # If not a known primary service, assume it's a discovered service name from Others
         if not app_id:
-            await query.edit_message_text("❌ Invalid service.")
-            return
+            app_id = service_name
         
-        with api_lock:
-            ranges = api_client.get_ranges(app_id)
+        # Remove lock for concurrent access
+        ranges = api_client.get_ranges(app_id)
+        
+        # Filter ranges for discovered services (non-WA/FB)
+        if app_id not in ["verifyed-access-whatsapp", "verifyed-access-facebook"]:
+            target_svc = app_id.lower()
+            filtered = []
+            for r in ranges:
+                # Check service field or origin
+                svc = r.get('service', r.get('origin', '')).lower()
+                if svc == target_svc:
+                    filtered.append(r)
+            ranges = filtered
         
         if not ranges:
             await query.edit_message_text(f"❌ No active ranges available for {service_name}.")
@@ -2202,10 +2227,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Fetch ranges
             ranges = api_client.get_ranges(app_id)
             
-            # Filter by country
+            # Filter by country AND service
             filtered_ranges = []
             if ranges:
+                target_svc = app_id.lower()
+                is_discovered = app_id not in ["verifyed-access-whatsapp", "verifyed-access-facebook"]
+                
                 for r in ranges:
+                    # 1. Filter by Service (if discovered)
+                    if is_discovered:
+                        svc = r.get('service', r.get('origin', '')).lower()
+                        if svc != target_svc:
+                            continue
+
                     range_name = r.get('name', r.get('id', ''))
                     r_country = r.get('cantryName', r.get('country', ''))
                     if not r_country or r_country == 'Unknown' or str(r_country).strip() == '':
@@ -2300,48 +2334,71 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             # Handle "others" - first show dynamic service list
+            # Handle "others" - first show dynamic service list via discovery
             if service_name == "others":
-                try:
-                    with api_lock:
-                        apps = api_client.get_applications()
-                    if not apps:
-                        await query.edit_message_text("❌ No services found.")
-                        return
-
-                    primary_ids = set(SERVICE_APP_IDS.values())
-                    other_apps = []
-                    for app in apps:
-                        app_id = app.get('appId') or app.get('id')
-                        app_name = app.get('name') or app.get('application') or app_id
-                        if app_id and app_id not in primary_ids:
-                            other_apps.append({"id": app_id, "name": app_name})
-
-                    if not other_apps:
-                        await query.edit_message_text("❌ No other services available.")
-                        return
-
-                    context.user_data['rangechkr_other_services'] = other_apps
-
-                    keyboard = []
-                    for idx, app in enumerate(other_apps):
-                        label = app['name'] or app['id']
-                        keyboard.append([InlineKeyboardButton(label, callback_data=f"rangechkr_serviceapp_{idx}")])
-                    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="rangechkr_back_services")])
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await query.edit_message_text("📋 Select a service:", reply_markup=reply_markup)
-                except Exception as e:
-                    logger.error(f"Error loading applications for rangechkr: {e}")
-                    await query.edit_message_text("❌ Failed to load services. Please try again.")
-                return
-            else:
-                # Handle specific services (WhatsApp, Facebook)
-                app_id = resolve_app_id(service_name, context)
-                if not app_id:
-                    await query.edit_message_text("❌ Invalid service.")
+                await query.edit_message_text("⏳ Searching services (broad search)...")
+                # Use "others" to trigger the broad keyword search
+                ranges = api_client.get_ranges("others")
+                if not ranges:
+                    await query.edit_message_text("❌ No ranges found via broad search.")
                     return
 
-                with api_lock:
-                    ranges = api_client.get_ranges(app_id)
+                # Group ranges by Service (origin)
+                services = {}
+                for r in ranges:
+                     svc = r.get('service', 'Other')
+                     if not svc: svc = 'Other'
+                     svc_clean = svc.strip()
+                     if not svc_clean: svc_clean = 'Other'
+                     services.setdefault(svc_clean, []).append(r)
+                
+                if not services:
+                     await query.edit_message_text("❌ No services discovered.")
+                     return
+
+                # Create Service Buttons
+                keyboard = []
+                sorted_services = sorted(services.keys())
+                
+                for i in range(0, len(sorted_services), 2):
+                    row = []
+                    s1 = sorted_services[i]
+                    count1 = len(services[s1])
+                    # Use rangechkr_service_{ServiceName} callback
+                    row.append(InlineKeyboardButton(f"{s1} ({count1})", callback_data=f"rangechkr_service_{s1}"))
+                    
+                    if i+1 < len(sorted_services):
+                        s2 = sorted_services[i+1]
+                        count2 = len(services[s2])
+                        row.append(InlineKeyboardButton(f"{s2} ({count2})", callback_data=f"rangechkr_service_{s2}"))
+                    keyboard.append(row)
+                
+                keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="rangechkr_back_services")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text("📋 Discovered Services:", reply_markup=reply_markup)
+                return
+            else:
+                # Handle specific services (WhatsApp, Facebook or Discovered)
+                app_id = resolve_app_id(service_name, context)
+                if not app_id:
+                    app_id = service_name
+
+                # Fetch ranges (no lock)
+                ranges = api_client.get_ranges(app_id)
+
+                # Filter ranges for discovered services (non-WA/FB)
+                if app_id not in ["verifyed-access-whatsapp", "verifyed-access-facebook"]:
+                    target_svc = app_id.lower()
+                    filtered = []
+                    for r in ranges:
+                        svc = r.get('service', r.get('origin', '')).lower()
+                        if svc == target_svc:
+                            filtered.append(r)
+                    ranges = filtered
+                
+                if not ranges:
+                    await query.edit_message_text(f"❌ No active ranges available for {service_name}.")
+                    return
 
                 if not ranges or len(ranges) == 0:
                     await query.edit_message_text(f"❌ No ranges found for {service_name.upper()}.")
