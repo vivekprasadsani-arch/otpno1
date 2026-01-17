@@ -579,9 +579,9 @@ class APIClient:
                 use_origin = False
             else:
                 # Specific other service (e.g. Google, Instagram)
-                # Search using the service name itself with origin filter
+                # Search using the service name itself
                 keywords = [app_id]
-                use_origin = True
+                use_origin = False
             
             all_ranges = []
             unique_range_names = set()  # Use range name (phone number) for deduplication, not range_id
@@ -639,7 +639,7 @@ class APIClient:
             apps.append({'id': app_id, 'name': app_id})
         return apps
     
-    def get_number(self, range_id):
+    def get_number(self, range_id, app_id=None):
         """Request a number from a range"""
         try:
             if not self.auth_token:
@@ -655,6 +655,7 @@ class APIClient:
             # New API: POST /mapi/v1/mdashboard/getnum/number
             payload = {
                 "range": range_id,
+                "origin": app_id or "",
                 "is_national": False,
                 "remove_plus": False
             }
@@ -685,13 +686,13 @@ class APIClient:
             logger.error(f"Error getting number: {e}")
             return None
     
-    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
+    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10, app_id=None):
         """Request multiple numbers from a range - with filtering and dual range_id/range_name logic."""
         numbers = []
         total_attempts = 0
         max_total_attempts = count * 10  # Safety limit
         
-        logger.info(f"Requesting {count} numbers from range {range_id} (name: {range_name})")
+        logger.info(f"Requesting {count} numbers from range {range_id} (name: {range_name}) for service {app_id}")
         
         while len(numbers) < count and total_attempts < max_total_attempts:
             total_attempts += 1
@@ -699,11 +700,11 @@ class APIClient:
                 # Try range_name first (like otp_tool.py line 561)
                 number_data = None
                 if range_name:
-                    number_data = self.get_number(range_name)
+                    number_data = self.get_number(range_name, app_id)
                 
                 # If range_name didn't work, try range_id
                 if not number_data:
-                    number_data = self.get_number(range_id)
+                    number_data = self.get_number(range_id, app_id)
                 
                 if number_data:
                     num_val = number_data.get('number') or number_data.get('num')
@@ -2021,7 +2022,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # with api_lock:
                 # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+                app_id = resolve_app_id(service_name, context)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count, app_id=app_id)
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
@@ -2517,7 +2519,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # with api_lock:
                 logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
                 # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+                app_id = resolve_app_id(service_name, context)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count, app_id=app_id)
                 logger.info(f"get_multiple_numbers returned: {numbers_data}")
                 
                 if not numbers_data or len(numbers_data) == 0:
