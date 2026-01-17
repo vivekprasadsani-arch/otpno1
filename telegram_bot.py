@@ -594,7 +594,7 @@ class APIClient:
             
             # Extra searches for specific WhatsApp prefixes
             if is_specific_service and 'whatsapp' in app_id.lower():
-                prefixes = ["225", "228", "229", "232", "236", "237", "244", "977"]
+                prefixes = ["225", "228", "229", "232", "236", "237", "244", "261", "977"]
                 logger.info(f"Fetching extra ranges for WhatsApp prefixes: {prefixes}")
                 for pfx in prefixes:
                     ranges = self._fetch_ranges_with_keyword(app_id, "", use_origin, prefix=pfx)
