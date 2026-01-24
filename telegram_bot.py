@@ -116,6 +116,35 @@ def refresh_global_token():
         else:
             get_global_api_client()
 
+# Helper for time parsing
+def parse_time_ago(time_str):
+    """Parse '7 mins ago', '1 hours ago' to minutes"""
+    if not time_str:
+        return 999999 # Treat missing as very old
+        
+    try:
+        parts = str(time_str).lower().split()
+        if len(parts) >= 2:
+            val = int(parts[0])
+            unit = parts[1]
+            
+            if 'sec' in unit:
+                return val / 60
+            elif 'min' in unit:
+                return val
+            elif 'hour' in unit:
+                return val * 60
+            elif 'day' in unit:
+                return val * 1440
+            elif 'week' in unit:
+                return val * 10080
+            elif 'month' in unit:
+                return val * 43200
+                
+        return 999999
+    except:
+        return 999999
+
 def get_user_status(user_id):
     """Get user approval status from database"""
     try:
@@ -534,7 +563,8 @@ class APIClient:
                                     'cantryName': country,
                                     'operator': destination,
                                     'limit_day': item.get('limit_day'),
-                                    'limit_hour': item.get('limit_hour')
+                                    'limit_hour': item.get('limit_hour'),
+                                    'datetime': item.get('datetime', '') # Extract timestamp (e.g., "7 mins ago")
                                 }
                                 
                                 # For Others service, include the actual service name from API
@@ -608,27 +638,55 @@ class APIClient:
             all_ranges = []
             unique_range_names = set()  # Use range name (phone number) for deduplication, not range_id
             
-            for kw in keywords:
-                ranges = self._fetch_ranges_with_keyword(app_id, kw, use_origin)
-                
-                # Add only unique ranges (by range name/phone number pattern)
-                for r in ranges:
-                    range_name = r['name']  # e.g., "37525XXXX"
-                    if range_name not in unique_range_names:
-                        # For specific other services (not primary, not "others"), 
-                        # filter by service name to avoid cross-contamination
-                        if not is_specific_service and app_id.lower() != "others":
-                            # This is a specific discovered service (e.g. "Google")
-                            # Check if the range's service matches (relaxed check)
-                            range_service = r.get('service', '').strip()
-                            if range_service and app_id.lower() not in range_service.lower():
-                                # Skip ranges from completely different services
-                                logger.info(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
-                                continue
-                            logger.info(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
-                        
-                        unique_range_names.add(range_name)
-                        all_ranges.append(r)
+            # Fallback strategy for specific other services
+            if not is_specific_service and app_id.lower() != "others":
+                # Try specific keyword first (Fast)
+                keywords_list = [[app_id]]
+                # If that fails, we might need to fallback to broad search
+                # But broad search is slow (30 requests). 
+                # Let's try to be smart - maybe just try generic 'code', 'otp' if specific fails?
+                # Actually, let's just stick to specific first. If it returns 0, we can decide.
+                # However, for now, let's use the provided logic:
+                keywords = [app_id]
+            
+            all_ranges = []
+            unique_range_names = set()
+            
+            # Helper to run search
+            def run_search(kw_list):
+                found_count = 0
+                for kw in kw_list:
+                    ranges = self._fetch_ranges_with_keyword(app_id, kw, use_origin)
+                    if ranges and found_count == 0:
+                         # Log keys of first item for debugging (timestamp analysis)
+                         logger.info(f"DEBUG: Item keys: {list(ranges[0].keys())}")
+                         
+                    for r in ranges:
+                        range_name = r['name']
+                        if range_name not in unique_range_names:
+                            # Client-side filter
+                            if not is_specific_service and app_id.lower() != "others":
+                                range_service = r.get('service', '').strip()
+                                if range_service and app_id.lower() not in range_service.lower():
+                                    logger.info(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
+                                    continue
+                                logger.info(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
+                            
+                            unique_range_names.add(range_name)
+                            all_ranges.append(r)
+                            found_count += 1
+                return found_count
+
+            # Execute search
+            count = run_search(keywords)
+            
+            # Fallback for Others: If specific search yielded 0 results, try broad search
+            if count == 0 and not is_specific_service and app_id.lower() != "others":
+                logger.info(f"Specific search for '{app_id}' yielded 0 results. Falling back to broad search...")
+                # Use a subset of most likely keywords to save time, or full list?
+                # Full list is safer but slower. 
+                count = run_search(others_keywords)
+
             
             # Extra searches for specific WhatsApp prefixes
             if is_specific_service and 'whatsapp' in app_id.lower():
@@ -1845,23 +1903,49 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Create country buttons - INLINE KEYBOARD
         keyboard = []
-        country_list = [c for c in sorted(country_ranges.keys()) if c != 'Unknown']
-        if 'Unknown' in country_ranges and len(country_list) == 0:
-            country_list.append('Unknown')
+        
+        # Helper to get "best" time for a country
+        def get_country_best_time(c_name):
+            ranges_list = country_ranges.get(c_name, [])
+            best_min = 999999
+            best_str = ""
+            for r in ranges_list:
+                t_str = r.get('datetime', '')
+                t_min = parse_time_ago(t_str)
+                if t_min < best_min:
+                    best_min = t_min
+                    best_str = t_str
+            return best_min, best_str
 
-        for i in range(0, len(country_list), 2):
+        # Sort countries by recency (Ascending minutes ago)
+        # Using 999999 as default sort key ensures unknown times go to bottom
+        sorted_countries = sorted(
+            [c for c in country_ranges.keys() if c != 'Unknown'],
+            key=lambda c: get_country_best_time(c)[0]
+        )
+        
+        if 'Unknown' in country_ranges and len(sorted_countries) == 0:
+            sorted_countries.append('Unknown')
+
+        for i in range(0, len(sorted_countries), 2):
             row = []
-            flag1 = get_country_flag(country_list[i])
-            row.append(InlineKeyboardButton(
-                f"{flag1} {country_list[i]}",
-                callback_data=f"country_{service_name}_{country_list[i]}"
-            ))
-            if i + 1 < len(country_list):
-                flag2 = get_country_flag(country_list[i + 1])
-                row.append(InlineKeyboardButton(
-                    f"{flag2} {country_list[i + 1]}",
-                    callback_data=f"country_{service_name}_{country_list[i + 1]}"
-                ))
+            
+            c1 = sorted_countries[i]
+            # count1 = len(country_ranges[c1]) # Not showing count anymore per user request style
+            _, time1 = get_country_best_time(c1)
+            label1 = f"{get_country_flag(c1)} {c1}"
+            if time1:
+                label1 += f" ({time1})"
+            
+            row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}"))
+            
+            if i + 1 < len(sorted_countries):
+                c2 = sorted_countries[i + 1]
+                _, time2 = get_country_best_time(c2)
+                label2 = f"{get_country_flag(c2)} {c2}"
+                if time2:
+                    label2 += f" ({time2})"
+                row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}"))
             keyboard.append(row)
 
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
@@ -1936,21 +2020,50 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Create country buttons
             keyboard = []
-            country_list = [c for c in sorted(country_ranges.keys()) if c != 'Unknown']
-            if 'Unknown' in country_ranges and len(country_list) == 0:
-                country_list.append('Unknown')
+            
+            # Create country buttons
+            keyboard = []
+            
+            # Helper to get "best" time for a country
+            def get_country_best_time(c_name):
+                ranges_list = country_ranges.get(c_name, [])
+                # Use cached timestamps if available, or parse again
+                best_min = 999999
+                best_str = ""
+                for r in ranges_list:
+                    t_str = r.get('datetime', '')
+                    t_min = parse_time_ago(t_str)
+                    if t_min < best_min:
+                        best_min = t_min
+                        best_str = t_str
+                return best_min, best_str
+
+            # Sort countries by recency
+            sorted_countries = sorted(
+                [c for c in country_ranges.keys() if c != 'Unknown'],
+                key=lambda c: get_country_best_time(c)[0]
+            )
+            
+            if 'Unknown' in country_ranges and len(sorted_countries) == 0:
+                sorted_countries.append('Unknown')
                 
-            for i in range(0, len(country_list), 2):
+            for i in range(0, len(sorted_countries), 2):
                 row = []
-                c1 = country_list[i]
-                flag1 = get_country_flag(c1)
-                # Use service_key (e.g. others_0) in callback
-                row.append(InlineKeyboardButton(f"{flag1} {c1}", callback_data=f"country_{service_key}_{c1}"))
+                c1 = sorted_countries[i]
+                _, time1 = get_country_best_time(c1)
+                label1 = f"{get_country_flag(c1)} {c1}"
+                if time1:
+                    label1 += f" ({time1})"
                 
-                if i + 1 < len(country_list):
-                    c2 = country_list[i + 1]
-                    flag2 = get_country_flag(c2)
-                    row.append(InlineKeyboardButton(f"{flag2} {c2}", callback_data=f"country_{service_key}_{c2}"))
+                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}"))
+                
+                if i + 1 < len(sorted_countries):
+                    c2 = sorted_countries[i + 1]
+                    _, time2 = get_country_best_time(c2)
+                    label2 = f"{get_country_flag(c2)} {c2}"
+                    if time2:
+                        label2 += f" ({time2})"
+                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}"))
                 
                 keyboard.append(row)
                 
