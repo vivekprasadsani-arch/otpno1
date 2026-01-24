@@ -2290,6 +2290,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 update_user_session(user_id, service_name, country, range_id, numbers_str, 1)
                 
                 # Start monitoring all numbers in background
+                # First, cancel any existing job to reset 15-min timer
+                if user_id in user_jobs:
+                    try:
+                        old_job = user_jobs[user_id]
+                        old_job.schedule_removal()
+                    except Exception as e:
+                        logger.error(f"Error cancelling old job: {e}")
+
                 job = context.job_queue.run_repeating(
                     monitor_otp,
                     interval=3,  # Increased to 3 seconds to prevent overlap
