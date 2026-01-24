@@ -615,10 +615,10 @@ class APIClient:
             
             # Keywords for Others (no origin filter - broader search)
             others_keywords = [
-                "code", "otp", "verify", "verification", "sms", "message", "auth", "login",
+                "verification", "code", "otp", "verify", "sms", "message", "auth", "login",
                 "conf", "confirm", "pin", "secure", "access", "validate", "check", "pass",
                 "password", "text", "msg", "notification", "notify", "info", "alert", "update",
-                "app", "web", "net", "com", "org", "verify-code", ""
+                "app", "web", "net", "com", "org", "verify-code", "any", "vantage", ""
             ]
             
             # Select keywords and origin usage based on service type
