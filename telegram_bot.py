@@ -2381,6 +2381,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error fetching ranges for {service_name}: {e}")
             await query.edit_message_text(f"❌ Failed to load ranges.")
             return
+    
+    # Others service pagination handlers
+    elif data == "rangechkr_others_prev":
+        page = context.user_data.get('rangechkr_others_page', 0)
+        context.user_data['rangechkr_others_page'] = max(0, page - 1)
+        # Trigger service list reload by simulating rangechkr_service_others callback
+        query.data = "rangechkr_service_others"
+        await button_callback(update, context)
+        return
+    
+    elif data == "rangechkr_others_next":
+        page = context.user_data.get('rangechkr_others_page', 0)
+        context.user_data['rangechkr_others_page'] = page + 1
+        # Trigger service list reload
+        query.data = "rangechkr_service_others"
+        await button_callback(update, context)
+        return
+    
+    elif data == "rangechkr_others_noop":
+        # Just answer the callback, don't do anything
+        try:
+            await query.answer("Current page")
+        except:
+            pass
+        return
+    
     # Range checker country selection
     elif data.startswith("rangechkr_country_"):
         parts = data.split("_", 3)
@@ -2440,8 +2466,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row = []
                 range1 = filtered_ranges[i]
                 range_name1 = range1.get('pattern', range1.get('name', ''))
-                range_id1 = range1.get('numerical_id') or range1.get('range_id') or range_name1
-                range_id_field1 = range1.get('range_id') or range1.get('numerical_id') or ''
+                # Use range_id (which is now the pattern) as primary identifier
+                range_id1 = range1.get('range_id') or range1.get('numerical_id') or range_name1
+                range_id_field1 = range1.get('numerical_id') or range1.get('range_id') or ''
                 actual_service = service_name # Use the service/app ID we are browsing
                 
                 range_hash1 = hashlib.md5(f"{actual_service}_{range_id1}".encode()).hexdigest()[:12]
@@ -2457,8 +2484,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if i + 1 < len(filtered_ranges):
                     range2 = filtered_ranges[i + 1]
                     range_name2 = range2.get('pattern', range2.get('name', ''))
-                    range_id2 = range2.get('numerical_id') or range2.get('range_id') or range_name2
-                    range_id_field2 = range2.get('range_id') or range2.get('numerical_id') or ''
+                    # Use range_id (which is now the pattern) as primary identifier
+                    range_id2 = range2.get('range_id') or range2.get('numerical_id') or range_name2
+                    range_id_field2 = range2.get('numerical_id') or range2.get('range_id') or ''
                     actual_service2 = service_name
                     
                     range_hash2 = hashlib.md5(f"{actual_service2}_{range_id2}".encode()).hexdigest()[:12]
@@ -2531,30 +2559,56 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     sorted_services = sorted(services_found.keys())
                     context.user_data['rangechkr_discovered_services'] = sorted_services
+                    context.user_data['rangechkr_services_dict'] = services_found
+                    
+                    # Pagination: Show 90 services per page (leaving room for navigation buttons)
+                    page = context.user_data.get('rangechkr_others_page', 0)
+                    services_per_page = 90
+                    total_pages = (len(sorted_services) + services_per_page - 1) // services_per_page
+                    
+                    start_idx = page * services_per_page
+                    end_idx = min(start_idx + services_per_page, len(sorted_services))
+                    page_services = sorted_services[start_idx:end_idx]
                     
                     keyboard = []
                     row = []
-                    for idx, svc in enumerate(sorted_services):
-                         # Skip primary
-                         if svc.lower() in ['whatsapp', 'facebook']: continue
-                         
-                         count = services_found[svc]
-                         label = f"{svc} ({count})"
-                         
-                         # Callback: rangechkr_others_{idx}
-                         row.append(InlineKeyboardButton(label, callback_data=f"rangechkr_others_{idx}"))
-                         
-                         if len(row) == 2:
-                             keyboard.append(row)
-                             row = []
+                    for idx in range(start_idx, end_idx):
+                        svc = sorted_services[idx]
+                        # Skip primary
+                        if svc.lower() in ['whatsapp', 'facebook']: 
+                            continue
+                        
+                        count = services_found[svc]
+                        label = f"{svc} ({count})"
+                        
+                        # Callback: rangechkr_others_{idx}
+                        row.append(InlineKeyboardButton(label, callback_data=f"rangechkr_others_{idx}"))
+                        
+                        if len(row) == 2:
+                            keyboard.append(row)
+                            row = []
                     
                     if row:
                         keyboard.append(row)
-                        
+                    
+                    # Pagination buttons
+                    if total_pages > 1:
+                        nav_row = []
+                        if page > 0:
+                            nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data="rangechkr_others_prev"))
+                        nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
+                        if page < total_pages - 1:
+                            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data="rangechkr_others_next"))
+                        keyboard.append(nav_row)
+                    
                     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="rangechkr_back_services")])
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    await query.edit_message_text(f"📋 Found {len(sorted_services)} Services:", reply_markup=reply_markup)
+                    page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+                    await query.edit_message_text(
+                        f"📋 Found {len(sorted_services)} Services{page_info}:\nShowing {len(page_services)} services", 
+                        reply_markup=reply_markup
+                    )
                 except Exception as e:
                     logger.error(f"Error discovering services: {e}")
                     await query.edit_message_text(f"❌ Error discovering services.")
