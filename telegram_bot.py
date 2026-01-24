@@ -519,33 +519,33 @@ class APIClient:
                     if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
                         ranges = []
                         for item in data['data']:
-                        destination = item.get('destination', 'Unknown')
-                        country = destination.split('-')[0].strip() if '-' in destination else destination
-                        
-                        range_val = item.get('test_number')
-                        if range_val:
-                            range_obj = {
-                                'id': range_val,
-                                'numerical_id': str(item.get('id')), # Use this primarily for buying
-                                'range_id': str(item.get('id')), # Compatibility
-                                'name': range_val,
-                                'pattern': range_val,
-                                'country': country,
-                                'cantryName': country,
-                                'operator': destination,
-                                'limit_day': item.get('limit_day'),
-                                'limit_hour': item.get('limit_hour')
-                            }
+                            destination = item.get('destination', 'Unknown')
+                            country = destination.split('-')[0].strip() if '-' in destination else destination
                             
-                            # For Others service, include the actual service name from API
-                            if not use_origin:
-                                service_name = item.get('origin', 'Unknown')
-                                range_obj['service'] = service_name
-                                # Append service to operator for display
-                                range_obj['operator'] = f"{destination} ({service_name})"
-                            
-                            ranges.append(range_obj)
-                    return ranges
+                            range_val = item.get('test_number')
+                            if range_val:
+                                range_obj = {
+                                    'id': range_val,
+                                    'numerical_id': str(item.get('id')), # Use this primarily for buying
+                                    'range_id': str(item.get('id')), # Compatibility
+                                    'name': range_val,
+                                    'pattern': range_val,
+                                    'country': country,
+                                    'cantryName': country,
+                                    'operator': destination,
+                                    'limit_day': item.get('limit_day'),
+                                    'limit_hour': item.get('limit_hour')
+                                }
+                                
+                                # For Others service, include the actual service name from API
+                                if not use_origin:
+                                    service_name = item.get('origin', 'Unknown')
+                                    range_obj['service'] = service_name
+                                    # Append service to operator for display
+                                    range_obj['operator'] = f"{destination} ({service_name})"
+                                
+                                ranges.append(range_obj)
+                        return ranges
             return []
         except Exception as e:
             logger.warning(f"Error fetching with keyword '{keyword}': {e}")
@@ -619,10 +619,10 @@ class APIClient:
                         # filter by service name to avoid cross-contamination
                         if not is_specific_service and app_id.lower() != "others":
                             # This is a specific discovered service (e.g. "Google")
-                            # Check if the range's service matches
+                            # Check if the range's service matches (relaxed check)
                             range_service = r.get('service', '').strip()
-                            if range_service and range_service.lower() != app_id.lower():
-                                # Skip ranges from different services
+                            if range_service and app_id.lower() not in range_service.lower():
+                                # Skip ranges from completely different services
                                 logger.debug(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
                                 continue
                             logger.debug(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
