@@ -1794,9 +1794,54 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Error setting number count. Please try again.")
         return
     
+    # Main menu Others pagination handlers
+    if data == "sel_others_prev":
+        page = context.user_data.get('service_others_page', 0)
+        context.user_data['service_others_page'] = max(0, page - 1)
+        query.data = "service_others"
+        # Since we modified query.data, we can just let it fall through to service_ handler
+        # But explicit call is safer if service_ handler is below
+        # Wait, if I call await button_callback, it recurses.
+        # But if I change data and let it continue?
+        # NO, 'data' variable is local string copy. Modifying it doesn't affect subsequent checks unless I modify 'data' var AND code is structured to check updated 'data'.
+        # The code below checks `if data.startswith("service_"):`.
+        # So if I update `data = "service_others"`, it will fall through!
+        data = "service_others" 
+        # Fall through to service_ handler
+    
+    elif data == "sel_others_next":
+        page = context.user_data.get('service_others_page', 0)
+        context.user_data['service_others_page'] = page + 1
+        data = "service_others"
+        # Fall through
+        
+    elif data == "sel_others_noop":
+        try: await query.answer("Current page")
+        except: pass
+        return
+
+    # Main menu Others specific service selection
+    elif data.startswith("sel_others_"):
+        try:
+            # Format: sel_others_{idx}
+            idx = int(data.split("_")[2])
+            discovered = context.user_data.get('discovered_services', [])
+            if 0 <= idx < len(discovered):
+                svc = discovered[idx]
+                logger.info(f"Selected {svc} from Main Menu Others")
+                # Redirect to standard service handler
+                data = f"service_{svc}"
+                # Fall through to service_ handler
+            else:
+                await query.edit_message_text("❌ Service not found. Please reload.")
+                return
+        except Exception as e:
+            logger.error(f"Error selecting from others: {e}")
+            await query.edit_message_text("❌ Error selecting service.")
+            return
     # Service selection (from inline buttons)
     if data.startswith("service_"):
-        service_name = data.split("_")[1]
+        service_name = data.split("_", 1)[1]
         
         # Get global API client
         api_client = get_global_api_client()
@@ -1833,9 +1878,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 sorted_services = sorted(services_found.keys())
                 context.user_data['discovered_services'] = sorted_services
                 
+                # Pagination logic
+                page = context.user_data.get('service_others_page', 0)
+                services_per_page = 90
+                total_pages = (len(sorted_services) + services_per_page - 1) // services_per_page
+                
+                start_idx = page * services_per_page
+                end_idx = min(start_idx + services_per_page, len(sorted_services))
+                page_services = sorted_services[start_idx:end_idx]
+                
                 keyboard = []
                 row = []
-                for idx, svc in enumerate(sorted_services):
+                for idx in range(start_idx, end_idx):
+                     svc = sorted_services[idx]
                      # Skip primary if found (optional, but better UX to keep separate)
                      # But if user wants EVERYTHING in others, I could remove this.
                      # "Whatsapp and Facebook flow unchanged" implies they stay in main menu.
@@ -1845,8 +1900,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      # Capitalize for display
                      label = f"{svc} ({count})"
                      
-                     # Callback: service_others_{idx}
-                     row.append(InlineKeyboardButton(label, callback_data=f"service_others_{idx}"))
+                     # Callback: sel_others_{idx} (Changed from service_others to avoid conflict)
+                     row.append(InlineKeyboardButton(label, callback_data=f"sel_others_{idx}"))
                      
                      if len(row) == 2:
                          keyboard.append(row)
@@ -1855,10 +1910,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if row:
                     keyboard.append(row)
                 
+                # Pagination buttons
+                if total_pages > 1:
+                    nav_row = []
+                    if page > 0:
+                        nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data="sel_others_prev"))
+                    nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="sel_others_noop"))
+                    if page < total_pages - 1:
+                        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data="sel_others_next"))
+                    keyboard.append(nav_row)
+                
                 keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                await query.edit_message_text(f"📋 Found {len(sorted_services)} Services:", reply_markup=reply_markup)
+                page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
+                await query.edit_message_text(
+                    f"📋 Found {len(sorted_services)} Services{page_info}:\nShowing {len(page_services)} services", 
+                    reply_markup=reply_markup
+                )
             
             except Exception as e:
                 logger.error(f"Error discovering services: {e}")
@@ -2407,6 +2476,29 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
     
+    # Selection of specific service from Others list
+    elif data.startswith("rangechkr_others_"):
+        try:
+            # Format: rangechkr_others_{idx}
+            idx_str = data.split("_")[2]
+            if idx_str.isdigit():
+                idx = int(idx_str)
+                discovered_services = context.user_data.get('rangechkr_discovered_services', [])
+                if 0 <= idx < len(discovered_services):
+                    service_name = discovered_services[idx]
+                    logger.info(f"User selected service from Others list: {service_name} (index {idx})")
+                    # Redirect to standard service handler
+                    query.data = f"rangechkr_service_{service_name}"
+                    await button_callback(update, context)
+                    return
+                else:
+                    await query.edit_message_text("❌ Service not found in session. Please reload.")
+                    return
+        except Exception as e:
+            logger.error(f"Error handling others service selection: {e}")
+            await query.edit_message_text("❌ Error selecting service.")
+            return
+    
     # Range checker country selection
     elif data.startswith("rangechkr_country_"):
         parts = data.split("_", 3)
@@ -2522,7 +2614,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Range checker service selection
     elif data.startswith("rangechkr_service_"):
-        service_name = data.split("_")[2]
+        service_name = data.split("_", 2)[2]
         
         # Get global API client
         api_client = get_global_api_client()
