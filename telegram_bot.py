@@ -579,7 +579,8 @@ class APIClient:
                 use_origin = False
             else:
                 # Specific other service (e.g. Google, Instagram)
-                # Search using the service name itself
+                # Search using the service name itself WITHOUT origin filter
+                # This matches the discovery behavior and is more compatible
                 keywords = [app_id]
                 use_origin = False
             
@@ -593,6 +594,18 @@ class APIClient:
                 for r in ranges:
                     range_name = r['name']  # e.g., "37525XXXX"
                     if range_name not in unique_range_names:
+                        # For specific other services (not primary, not "others"), 
+                        # filter by service name to avoid cross-contamination
+                        if not is_specific_service and app_id.lower() != "others":
+                            # This is a specific discovered service (e.g. "Google")
+                            # Check if the range's service matches
+                            range_service = r.get('service', '').strip()
+                            if range_service and range_service.lower() != app_id.lower():
+                                # Skip ranges from different services
+                                logger.debug(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
+                                continue
+                            logger.debug(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
+                        
                         unique_range_names.add(range_name)
                         all_ranges.append(r)
             
@@ -639,7 +652,7 @@ class APIClient:
             apps.append({'id': app_id, 'name': app_id})
         return apps
     
-    def get_number(self, range_id, app_id=None):
+    def get_number(self, range_id):
         """Request a number from a range"""
         try:
             if not self.auth_token:
@@ -655,7 +668,6 @@ class APIClient:
             # New API: POST /mapi/v1/mdashboard/getnum/number
             payload = {
                 "range": range_id,
-                "origin": app_id or "",
                 "is_national": False,
                 "remove_plus": False
             }
@@ -686,13 +698,13 @@ class APIClient:
             logger.error(f"Error getting number: {e}")
             return None
     
-    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10, app_id=None):
+    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
         """Request multiple numbers from a range - with filtering and dual range_id/range_name logic."""
         numbers = []
         total_attempts = 0
         max_total_attempts = count * 10  # Safety limit
         
-        logger.info(f"Requesting {count} numbers from range {range_id} (name: {range_name}) for service {app_id}")
+        logger.info(f"Requesting {count} numbers from range {range_id} (name: {range_name})")
         
         while len(numbers) < count and total_attempts < max_total_attempts:
             total_attempts += 1
@@ -700,11 +712,11 @@ class APIClient:
                 # Try range_name first (like otp_tool.py line 561)
                 number_data = None
                 if range_name:
-                    number_data = self.get_number(range_name, app_id)
+                    number_data = self.get_number(range_name)
                 
                 # If range_name didn't work, try range_id
                 if not number_data:
-                    number_data = self.get_number(range_id, app_id)
+                    number_data = self.get_number(range_id)
                 
                 if number_data:
                     num_val = number_data.get('number') or number_data.get('num')
@@ -2022,8 +2034,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # with api_lock:
                 # Try range_name first, then range_id (like otp_tool.py)
-                app_id = resolve_app_id(service_name, context)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count, app_id=app_id)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
@@ -2519,8 +2530,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # with api_lock:
                 logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
                 # Try range_name first, then range_id (like otp_tool.py)
-                app_id = resolve_app_id(service_name, context)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count, app_id=app_id)
+                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
                 logger.info(f"get_multiple_numbers returned: {numbers_data}")
                 
                 if not numbers_data or len(numbers_data) == 0:
