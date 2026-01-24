@@ -623,9 +623,9 @@ class APIClient:
                             range_service = r.get('service', '').strip()
                             if range_service and app_id.lower() not in range_service.lower():
                                 # Skip ranges from completely different services
-                                logger.debug(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
+                                logger.info(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
                                 continue
-                            logger.debug(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
+                            logger.info(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
                         
                         unique_range_names.add(range_name)
                         all_ranges.append(r)
