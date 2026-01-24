@@ -1927,24 +1927,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 'Unknown' in country_ranges and len(sorted_countries) == 0:
             sorted_countries.append('Unknown')
 
+        # Helper for UI Truncation
+        def format_country_label(flag, name, time_str, max_len=30):
+            if not time_str:
+                return f"{flag} {name}"
+            
+            time_part = f" ({time_str})"
+            # Calculate remaining space for name
+            # flag (2) + space (1) + name + time_part
+            # name <= max_len - len(time_part) - 3
+            available_len = max_len - len(time_part) - 3
+            if available_len < 5: available_len = 5 # Safety floor
+            
+            if len(name) > available_len:
+                name = name[:available_len-1] + "…"
+            
+            return f"{flag} {name}{time_part}"
+
         for i in range(0, len(sorted_countries), 2):
             row = []
             
             c1 = sorted_countries[i]
-            # count1 = len(country_ranges[c1]) # Not showing count anymore per user request style
             _, time1 = get_country_best_time(c1)
-            label1 = f"{get_country_flag(c1)} {c1}"
-            if time1:
-                label1 += f" ({time1})"
+            flag1 = get_country_flag(c1)
+            label1 = format_country_label(flag1, c1, time1)
             
             row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}"))
             
             if i + 1 < len(sorted_countries):
                 c2 = sorted_countries[i + 1]
                 _, time2 = get_country_best_time(c2)
-                label2 = f"{get_country_flag(c2)} {c2}"
-                if time2:
-                    label2 += f" ({time2})"
+                flag2 = get_country_flag(c2)
+                label2 = format_country_label(flag2, c2, time2)
                 row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}"))
             keyboard.append(row)
 
@@ -1987,12 +2001,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("❌ No ranges found (session expired?).")
                 return
                 
-            # Filter by service
+            # Filter by service (Relaxed matching)
             service_ranges = []
+            service_norm = service_name.lower()
             for r in ranges:
-                 s = r.get('service', 'Other')
-                 if s and str(s).strip() == service_name:
+                 s = str(r.get('service', 'Other')).lower()
+                 if s and (service_norm in s or s in service_norm):
                      service_ranges.append(r)
+            
+            # Debug log for filtering failure
+            if not service_ranges:
+                 logger.info(f"Filtering mismatch: Target='{service_name}'. Samples: {[r.get('service') for r in ranges[:5]]}")
             
             if not service_ranges:
                  await query.edit_message_text(f"❌ No ranges found for {service_name}.")
@@ -2017,9 +2036,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not country: country = 'Unknown'
                 
                 country_ranges.setdefault(country, []).append(r)
-            
-            # Create country buttons
-            keyboard = []
             
             # Create country buttons
             keyboard = []
@@ -2049,20 +2065,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             for i in range(0, len(sorted_countries), 2):
                 row = []
+                
                 c1 = sorted_countries[i]
                 _, time1 = get_country_best_time(c1)
-                label1 = f"{get_country_flag(c1)} {c1}"
-                if time1:
-                    label1 += f" ({time1})"
+                flag1 = get_country_flag(c1)
+                label1 = format_country_label(flag1, c1, time1)
                 
                 row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}"))
                 
                 if i + 1 < len(sorted_countries):
                     c2 = sorted_countries[i + 1]
                     _, time2 = get_country_best_time(c2)
-                    label2 = f"{get_country_flag(c2)} {c2}"
-                    if time2:
-                        label2 += f" ({time2})"
+                    flag2 = get_country_flag(c2)
+                    label2 = format_country_label(flag2, c2, time2)
                     row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}"))
                 
                 keyboard.append(row)
