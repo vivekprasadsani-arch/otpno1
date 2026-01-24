@@ -52,8 +52,8 @@ except ImportError:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required. Please set it in Render environment variables.")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "7325836764"))
-OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1002724043027"))  # Channel ID for forwarding OTP messages
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
+OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))  # Channel ID for forwarding OTP messages
 
 # API Configuration (from otp_tool.py)
 BASE_URL = "https://stexsms.com"
@@ -119,6 +119,10 @@ def refresh_global_token():
 def get_user_status(user_id):
     """Get user approval status from database"""
     try:
+        # Always approve admin
+        if int(user_id) == ADMIN_USER_ID:
+            return 'approved'
+            
         with db_lock:
             # Use integer user_id (BIGINT in database)
             result = supabase.table('users').select('status').eq('user_id', int(user_id)).execute()
@@ -486,18 +490,35 @@ class APIClient:
             else:
                 payload["origin"] = ""  # Blank for Others
             
-            resp = self.session.post(
-                f"{self.base_url}/mapi/v1/mdashboard/access/info",
-                json=payload,
-                headers=headers,
-                timeout=15
-            )
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
-                    ranges = []
-                    for item in data['data']:
+            # Implementation of retry logic for token expiration
+            max_fetches = 2
+            for attempt in range(max_fetches):
+                # Update token in headers (in case it was refreshed)
+                if self.auth_token:
+                    headers["mauthtoken"] = self.auth_token
+
+                resp = self.session.post(
+                    f"{self.base_url}/mapi/v1/mdashboard/access/info",
+                    json=payload,
+                    headers=headers,
+                    timeout=15
+                )
+                
+                # Check for token expiration
+                if resp.status_code in [401, 403] or "unauthorized" in resp.text.lower():
+                    logger.warning(f"Token expired (Status {resp.status_code}), refreshing...")
+                    self.auth_token = None
+                    if self.login():
+                        # Retry loop will pick up new token
+                        continue
+                    else:
+                        return [] # Login failed
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
+                        ranges = []
+                        for item in data['data']:
                         destination = item.get('destination', 'Unknown')
                         country = destination.split('-')[0].strip() if '-' in destination else destination
                         
@@ -627,11 +648,12 @@ class APIClient:
 
             logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} using {len(keywords)} keywords (origin_filter={use_origin})")
             
-            # Update cache
-            self._ranges_cache[cache_key] = {
-                'timestamp': time.time(),
-                'data': all_ranges
-            }
+            # Update cache only if we found ranges
+            if len(all_ranges) > 0:
+                self._ranges_cache[cache_key] = {
+                    'timestamp': time.time(),
+                    'data': all_ranges
+                }
             
             return all_ranges
             
