@@ -554,9 +554,9 @@ class APIClient:
                             range_val = item.get('test_number')
                             if range_val:
                                 range_obj = {
-                                    'id': range_val,
-                                    'numerical_id': str(item.get('id')), # Use this primarily for buying
-                                    'range_id': str(item.get('id')), # Compatibility
+                                    'id': range_val,  # Pattern like "9965579XXX" - PRIMARY identifier
+                                    'numerical_id': str(item.get('id')),  # Numerical ID for reference only
+                                    'range_id': range_val,  # Use pattern as range_id (API expects this)
                                     'name': range_val,
                                     'pattern': range_val,
                                     'country': country,
@@ -564,7 +564,7 @@ class APIClient:
                                     'operator': destination,
                                     'limit_day': item.get('limit_day'),
                                     'limit_hour': item.get('limit_hour'),
-                                    'datetime': item.get('datetime', '') # Extract timestamp (e.g., "7 mins ago")
+                                    'datetime': item.get('datetime', '')  # Extract timestamp (e.g., "7 mins ago")
                                 }
                                 
                                 # For Others service, include the actual service name from API
@@ -789,15 +789,17 @@ class APIClient:
         while len(numbers) < count and total_attempts < max_total_attempts:
             total_attempts += 1
             try:
-                # Try range_name first (like otp_tool.py line 561)
+                # Try range_name first (this is the pattern like "9965579XXX")
                 number_data = None
                 if range_name:
+                    logger.info(f"Attempting with range_name (pattern): {range_name}")
                     number_data = self.get_number(range_name)
                 
-                # If range_name didn't work, try range_id
-                if not number_data:
+                # Fallback to range_id only if range_name fails and they're different
+                if not number_data and range_id != range_name:
+                    logger.info(f"Fallback: attempting with range_id: {range_id}")
                     number_data = self.get_number(range_id)
-                
+                    
                 if number_data:
                     num_val = number_data.get('number') or number_data.get('num')
                     if num_val:
