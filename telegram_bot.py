@@ -1810,26 +1810,23 @@ def remember_console_log(log_key):
         forwarded_console_ids.discard(old_key)
 
 def build_console_channel_message(log_item):
-    """Build channel message from console masked log item."""
+    """Build channel message using legacy one-line channel template."""
     country = str(log_item.get('country') or 'Unknown').strip() or 'Unknown'
-    service = str(log_item.get('app_name') or 'Unknown').strip() or 'Unknown'
+    service_raw = str(log_item.get('app_name') or 'Unknown').strip() or 'Unknown'
     number_masked = str(log_item.get('number') or 'Unknown').strip() or 'Unknown'
     sms_content = str(log_item.get('sms') or '').strip()
     language = detect_language_from_sms(sms_content) if sms_content else 'English'
-    masked_otp = extract_masked_otp_from_sms(sms_content)
+    service_key = normalize_service_name(service_raw)
 
     country_flag = get_country_flag(country)
     country_code = get_country_code(country)
+    service_display = {
+        "whatsapp": "WhatsApp",
+        "facebook": "Facebook",
+        "telegram": "Telegram"
+    }.get(service_key, service_raw)
 
-    base_line = f"{country_flag} #{country_code} {html.escape(service)} {html.escape(number_masked)} {html.escape(language)}"
-    sms_line = f"SMS: {html.escape(sms_content)}" if sms_content else "SMS: N/A"
-
-    if masked_otp:
-        otp_line = f"OTP: <code>{html.escape(masked_otp)}</code>"
-    else:
-        otp_line = "OTP: <code>******</code>"
-
-    return f"{base_line}\n{otp_line}\n{sms_line}"
+    return f"{country_flag} #{country_code} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
