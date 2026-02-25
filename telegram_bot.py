@@ -9,6 +9,7 @@ import requests
 import json
 import re
 import hashlib
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.error import Conflict
@@ -89,6 +90,12 @@ init_database()
 # Global locks for thread safety
 db_lock = threading.Lock()
 user_jobs = {}  # Store latest monitoring job per user (older jobs may still run)
+console_lock = threading.Lock()
+console_bootstrapped = False
+forwarded_console_ids = set()
+forwarded_console_order = []
+MAX_FORWARDED_CONSOLE_IDS = 5000
+bot_username_cache = None
 
 # Global API client - single session for all users
 global_api_client = None
@@ -957,6 +964,43 @@ class APIClient:
             logger.error(f"Error checking OTP batch: {e}")
             return {}
 
+    def get_console_logs(self):
+        """Get latest masked OTP logs from console endpoint."""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return []
+
+            headers = {
+                **self.browser_headers,
+                "mauthtoken": self.auth_token,
+                "Referer": f"{self.base_url}/mdashboard/console",
+                "Accept": "application/json, text/plain, */*"
+            }
+
+            url = f"{self.base_url}/mapi/v1/mdashboard/console/info"
+            resp = self.session.get(url, headers=headers, timeout=10)
+
+            if resp.status_code in [401, 403]:
+                logger.info("Token expired in get_console_logs, refreshing...")
+                if self.login():
+                    headers["mauthtoken"] = self.auth_token
+                    resp = self.session.get(url, headers=headers, timeout=10)
+                else:
+                    return []
+
+            if resp.status_code != 200:
+                logger.warning(f"get_console_logs failed: status={resp.status_code} body={resp.text[:200]}")
+                return []
+
+            payload = resp.json()
+            data = payload.get("data", {}) if isinstance(payload, dict) else {}
+            logs = data.get("logs", []) if isinstance(data, dict) else []
+            return logs if isinstance(logs, list) else []
+        except Exception as e:
+            logger.error(f"Error getting console logs: {e}")
+            return []
+
 # Global API client - single session for all users
 global_api_client = None
 api_lock = threading.Lock()
@@ -1249,6 +1293,208 @@ def get_country_code(country_name):
     
     return 'XX'
 
+def detect_country_from_number(number):
+    """Detect country name from number prefix."""
+    if not number:
+        return None
+
+    digits = ''.join(filter(str.isdigit, str(number)))
+    for code_len in [3, 2, 1]:
+        if len(digits) >= code_len:
+            code = digits[:code_len]
+            if code in COUNTRY_CODES:
+                return COUNTRY_CODES[code]
+    return None
+
+def _sanitize_start_token(value, max_len=48):
+    """Keep only deep-link safe chars."""
+    if not value:
+        return ""
+    return re.sub(r'[^A-Za-z0-9]', '', str(value))[:max_len]
+
+def infer_range_from_number(number):
+    """Best-effort range guess from a phone number."""
+    digits = ''.join(filter(str.isdigit, str(number or "")))
+    if len(digits) >= 7:
+        return f"{digits[:-3]}XXX"
+    return digits or None
+
+def normalize_service_name(service_name):
+    """Normalize service text to internal key."""
+    if not service_name:
+        return None
+
+    normalized = re.sub(r'[^a-z0-9]+', '', str(service_name).lower())
+    if "whatsapp" in normalized:
+        return "whatsapp"
+    if "facebook" in normalized:
+        return "facebook"
+    if "telegram" in normalized:
+        return "telegram"
+    return None
+
+def build_range_start_payload(range_value, service_name=None):
+    """Build /start deep-link payload for range."""
+    range_token = _sanitize_start_token(range_value, max_len=40).upper()
+    if not range_token:
+        return None
+
+    service_token = _sanitize_start_token(service_name, max_len=12).lower()
+    if service_token:
+        return f"rng_{range_token}_{service_token}"
+    return f"rng_{range_token}"
+
+def parse_range_start_payload(payload):
+    """Parse deep-link payload -> (range_value, service_hint)."""
+    if not payload or not payload.startswith("rng_"):
+        return None, None
+
+    rest = payload[4:]
+    if "_" in rest:
+        range_part, service_part = rest.split("_", 1)
+    else:
+        range_part, service_part = rest, ""
+
+    range_value = _sanitize_start_token(range_part, max_len=40).upper()
+    service_hint = _sanitize_start_token(service_part, max_len=12).lower() or None
+
+    if not range_value:
+        return None, None
+
+    return range_value, service_hint
+
+async def build_range_deeplink(context: ContextTypes.DEFAULT_TYPE, range_value, service_name=None):
+    """Build t.me deep link URL for opening bot with range payload."""
+    global bot_username_cache
+
+    payload = build_range_start_payload(range_value, service_name)
+    if not payload:
+        return None
+
+    if not bot_username_cache:
+        try:
+            me = await context.bot.get_me()
+            bot_username_cache = me.username
+        except Exception as e:
+            logger.warning(f"Unable to resolve bot username for range link: {e}")
+            return None
+
+    if not bot_username_cache:
+        return None
+
+    return f"https://t.me/{bot_username_cache}?start={payload}"
+
+async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEFAULT_TYPE, range_value, service_hint=None):
+    """Fetch numbers for a deep-link range and start OTP monitor."""
+    user_id = update.effective_user.id
+    api_client = get_global_api_client()
+    if not api_client:
+        await update.message.reply_text("❌ API connection error. Please try again.")
+        return
+
+    session = get_user_session(user_id)
+    number_count = session.get('number_count', 2) if session else 2
+    base_range = _sanitize_start_token(range_value, max_len=40).upper()
+
+    if len(base_range) < 4:
+        await update.message.reply_text("❌ Invalid range.")
+        return
+
+    candidates = [base_range]
+    if 'X' not in base_range:
+        candidates.append(f"{base_range}XXX")
+
+    numbers_data = None
+    selected_range = None
+    for candidate in candidates:
+        with api_lock:
+            response = api_client.get_multiple_numbers(candidate, candidate, number_count)
+        if response:
+            numbers_data = response
+            selected_range = candidate
+            break
+
+    if not numbers_data:
+        await update.message.reply_text(f"❌ Failed to get numbers for range {base_range}.")
+        return
+
+    numbers_list = []
+    for num_data in numbers_data:
+        number = num_data.get('number', '')
+        if number:
+            numbers_list.append(number)
+
+    if not numbers_list:
+        await update.message.reply_text("❌ No valid numbers received. Please try again.")
+        return
+
+    country_name = detect_country_from_number(numbers_list[0]) or detect_country_from_range(selected_range) or 'Unknown'
+    found_service = (
+        normalize_service_name(service_hint)
+        or normalize_service_name(session.get('service') if session else None)
+        or "whatsapp"
+    )
+
+    keyboard = []
+    for num in numbers_list:
+        keyboard.append([InlineKeyboardButton(
+            f"📱 {num}",
+            api_kwargs={"copy_text": {"text": num}}
+        )])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    country_flag = get_country_flag(country_name)
+    service_icons = {
+        "whatsapp": "💬",
+        "facebook": "👥",
+        "telegram": "✈️"
+    }
+    service_icon = service_icons.get(found_service, "📱")
+    message_text = (
+        f"{service_icon} {found_service.upper()}\n"
+        f"{country_flag} {country_name}\n"
+        f"📋 Range: {selected_range}\n\n"
+        f"✅ {len(numbers_list)} numbers received:\n\n"
+        "Tap a number to copy it."
+    )
+
+    sent_msg = await update.message.reply_text(
+        message_text,
+        reply_markup=reply_markup
+    )
+
+    update_user_session(
+        user_id,
+        service=found_service,
+        country=country_name,
+        range_id=selected_range,
+        number=','.join(numbers_list),
+        monitoring=1
+    )
+
+    if user_id in user_jobs:
+        user_jobs[user_id].schedule_removal()
+
+    if context.job_queue:
+        job_data = {
+            'user_id': user_id,
+            'numbers': numbers_list,
+            'service': found_service,
+            'range_id': selected_range,
+            'start_time': time.time(),
+            'message_id': sent_msg.message_id
+        }
+        if country_name and country_name != 'Unknown':
+            job_data['country'] = country_name
+
+        job = context.job_queue.run_repeating(
+            monitor_otp,
+            interval=3,
+            first=5,
+            data=job_data
+        )
+        user_jobs[user_id] = job
+
 def sort_numbers_for_ivory_coast(numbers_list, country_name):
     """
     Sort numbers for Ivory Coast - prioritize numbers starting with 22507
@@ -1509,6 +1755,82 @@ def detect_language_from_sms(sms_content):
     # Default fallback
     return 'English'
 
+def extract_masked_otp_from_sms(sms_content):
+    """Extract masked OTP token (e.g., ****** or ***-***)."""
+    if not sms_content:
+        return None
+
+    text = str(sms_content).replace("\n", " ")
+
+    patterns = [
+        r'(?:otp|code|verification|confirm)[^0-9*]*([0-9*]{3,8}(?:-[0-9*]{3,8})?)',
+        r'\b([0-9*]{3,8}-[0-9*]{3,8})\b',
+        r'\b([0-9*]{4,10})\b'
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if not match:
+            continue
+        token = match.group(1).strip()
+        # Console OTP values are masked with "*", keep masked format only.
+        if "*" in token:
+            return token
+
+    return None
+
+def is_console_otp_sms(sms_content, app_name=''):
+    """Best-effort OTP detection for console stream logs."""
+    text = f"{sms_content or ''} {app_name or ''}".lower()
+    keywords = [
+        "otp", "code", "verification", "verify", "facebook", "whatsapp",
+        "auth", "security", "confirm", "confirmation"
+    ]
+    if any(keyword in text for keyword in keywords):
+        return True
+
+    if sms_content and "*" in sms_content and re.search(r'[0-9*]{3,8}(?:-[0-9*]{3,8})?', sms_content):
+        return True
+
+    return False
+
+def remember_console_log(log_key):
+    """Track forwarded console log keys with bounded memory."""
+    if not log_key:
+        return
+
+    if log_key in forwarded_console_ids:
+        return
+
+    forwarded_console_ids.add(log_key)
+    forwarded_console_order.append(log_key)
+
+    if len(forwarded_console_order) > MAX_FORWARDED_CONSOLE_IDS:
+        old_key = forwarded_console_order.pop(0)
+        forwarded_console_ids.discard(old_key)
+
+def build_console_channel_message(log_item):
+    """Build channel message from console masked log item."""
+    country = str(log_item.get('country') or 'Unknown').strip() or 'Unknown'
+    service = str(log_item.get('app_name') or 'Unknown').strip() or 'Unknown'
+    number_masked = str(log_item.get('number') or 'Unknown').strip() or 'Unknown'
+    sms_content = str(log_item.get('sms') or '').strip()
+    language = detect_language_from_sms(sms_content) if sms_content else 'English'
+    masked_otp = extract_masked_otp_from_sms(sms_content)
+
+    country_flag = get_country_flag(country)
+    country_code = get_country_code(country)
+
+    base_line = f"{country_flag} #{country_code} {html.escape(service)} {html.escape(number_masked)} {html.escape(language)}"
+    sms_line = f"SMS: {html.escape(sms_content)}" if sms_content else "SMS: N/A"
+
+    if masked_otp:
+        otp_line = f"OTP: <code>{html.escape(masked_otp)}</code>"
+    else:
+        otp_line = "OTP: <code>******</code>"
+
+    return f"{base_line}\n{otp_line}\n{sms_line}"
+
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /rangechkr command - Show ranges grouped by service"""
@@ -1544,6 +1866,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     username = user.username or user.first_name or "Unknown"
+    deep_link_arg = context.args[0] if context.args else None
+    deep_link_range, deep_link_service = parse_range_start_payload(deep_link_arg)
     
     # Get current status first (before adding user)
     status = get_user_status(user_id)
@@ -1575,6 +1899,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
+
+        # If user opened bot from channel "Range" button, fetch numbers immediately.
+        if deep_link_range:
+            await update.message.reply_text(f"⏳ Processing range: {deep_link_range}")
+            await send_numbers_from_range_link(update, context, deep_link_range, deep_link_service)
     elif status == 'rejected':
         await update.message.reply_text("❌ Your access has been rejected. Please contact admin.")
     else:
@@ -3155,7 +3484,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Handle direct range input (e.g., "24491501XXX" or "24491501")
     elif re.match(r'^[\dXx]+$', text) and len(text) >= 6:
-        # Looks like a range pattern - search across all services
+        # Direct range buy: always use WhatsApp without active-range lookup.
         range_pattern = text.upper()
         
         # Get global API client
@@ -3163,65 +3492,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not api_client:
             await update.message.reply_text("❌ API connection error. Please try again.")
             return
-        
-        service_map = {
-            "whatsapp": "verifyed-access-whatsapp",
-            "facebook": "verifyed-access-facebook",
-            "telegram": "verifyed-access-telegram"
-        }
-        
-        # Search for range across all services
-        found_range = None
-        found_service = None
-        
-        await update.message.reply_text("⏳ Searching for range...")
+
+        found_service = "whatsapp"
+        range_name = range_pattern
+        range_id = range_pattern
+        await update.message.reply_text("⏳ Buying directly via WhatsApp...")
         
         try:
-            for service_name, app_id in service_map.items():
-                with api_lock:
-                    ranges = api_client.get_ranges(app_id)
-                
-                # Search for matching range
-                for r in ranges:
-                    range_name = r.get('name', r.get('id', ''))
-                    range_id = r.get('id', r.get('name', ''))
-                    
-                    # Check if range matches pattern (remove X's and compare)
-                    range_clean = str(range_name).replace('X', '').replace('x', '').replace('+', '').replace('-', '').replace(' ', '')
-                    pattern_clean = range_pattern.replace('X', '').replace('x', '')
-                    
-                    # Try exact match or partial match
-                    if pattern_clean in range_clean or range_clean.startswith(pattern_clean) or pattern_clean.startswith(range_clean[:len(pattern_clean)]):
-                        found_range = r
-                        found_service = service_name
-                        break
-                
-                if found_range:
-                    break
-            
-            if not found_range:
-                # Fallback: Try directly with the input string as both name and ID
-                # Default to WhatsApp as it's the most common use case
-                found_service = "whatsapp"
-                range_name = text
-                range_id = text
-                # Try to detect service from previous context if possible, otherwise WhatsApp
-                message = f"⚠️ Range '{text}' not found in active list.\nTrying direct request via WhatsApp..."
-                await update.message.reply_text(message)
-                
-                # Create a pseudo found_range object
-                found_range = {
-                    'name': text,
-                    'id': text,
-                    'country': 'Unknown',
-                    'cantryName': 'Unknown',
-                    'operator': 'Unknown'
-                }
-            
-            # Found range - get numbers (like otp_tool.py)
-            range_name = found_range.get('name', '')
-            range_id = found_range.get('id', found_range.get('name', ''))
-            
             # Get user's number count preference
             session = get_user_session(user_id)
             number_count = session.get('number_count', 2) if session else 2
@@ -3229,6 +3506,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with api_lock:
                 # Try range_name first, then range_id (like otp_tool.py)
                 numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+
+                # If user typed digits-only range, retry once with XXX suffix.
+                if (not numbers_data or len(numbers_data) == 0) and 'X' not in range_pattern:
+                    range_name = f"{range_pattern}XXX"
+                    range_id = range_name
+                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
                 await update.message.reply_text("❌ Failed to get numbers from this range. Please try again.")
@@ -3704,9 +3987,28 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         masked_number = masked_number[1:]  # Remove + for display
                     channel_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} {masked_number} {language}"
                     
-                    # Create inline keyboard with OTP copy button
-                    keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]] 
-                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    # Build deep-link URL for the "Range" button (channel only)
+                    range_for_button = None
+                    if job_data:
+                        range_for_button = job_data.get('range_id')
+                    if not range_for_button and session:
+                        range_for_button = session.get('range_id')
+                    if not range_for_button:
+                        range_for_button = infer_range_from_number(number)
+                    if range_for_button and job_data and not job_data.get('range_id'):
+                        job_data['range_id'] = range_for_button
+
+                    range_url = await build_range_deeplink(context, range_for_button, service)
+
+                    # User keyboard keeps only OTP copy.
+                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    user_reply_markup = InlineKeyboardMarkup(user_keyboard)
+
+                    # Channel keyboard: OTP copy + Range button side by side.
+                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
+                    if range_url:
+                        channel_row.append(InlineKeyboardButton("Range", url=range_url))
+                    channel_reply_markup = InlineKeyboardMarkup([channel_row])
                     
                     # Send OTP message to user FIRST (important!)
                     user_message_sent = False
@@ -3715,7 +4017,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         sent_msg = await context.bot.send_message(
                             chat_id=user_id,
                             text=user_otp_msg,
-                            reply_markup=reply_markup,
+                            reply_markup=user_reply_markup,
                             parse_mode='HTML'
                         )
                         user_message_sent = True
@@ -3730,7 +4032,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(
                             chat_id=OTP_CHANNEL_ID,
                             text=channel_otp_msg,
-                            reply_markup=reply_markup,
+                            reply_markup=channel_reply_markup,
                             parse_mode='HTML'
                         )
                         logger.info(f"✅ OTP forwarded to channel {OTP_CHANNEL_ID} for {number}: {otp}")
@@ -3757,6 +4059,102 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     # Otherwise, continue monitoring for remaining numbers
     except Exception as e:
         logger.error(f"Error monitoring OTP for user {user_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
+    """Monitor masked console OTP stream and forward unique new entries to channel."""
+    global console_bootstrapped
+
+    api_client = get_global_api_client()
+    if not api_client:
+        return
+
+    try:
+        logs = api_client.get_console_logs()
+        if not logs:
+            return
+
+        normalized_logs = []
+        for item in logs:
+            if not isinstance(item, dict):
+                continue
+
+            raw_id = item.get('id')
+            log_id = None
+            if raw_id is not None:
+                try:
+                    log_id = int(raw_id)
+                except (TypeError, ValueError):
+                    log_id = None
+
+            if log_id is not None:
+                log_key = f"id:{log_id}"
+            else:
+                fallback = f"{item.get('time','')}|{item.get('number','')}|{item.get('app_name','')}|{item.get('sms','')}"
+                log_key = f"sig:{hashlib.md5(fallback.encode('utf-8')).hexdigest()}"
+
+            normalized_logs.append((log_id, log_key, item))
+
+        if not normalized_logs:
+            return
+
+        with console_lock:
+            if not console_bootstrapped:
+                for _, key, _ in normalized_logs:
+                    remember_console_log(key)
+                console_bootstrapped = True
+                logger.info(f"Console monitor bootstrapped with {len(normalized_logs)} existing logs")
+                return
+
+        normalized_logs.sort(key=lambda row: (row[0] is None, row[0] if row[0] is not None else 0))
+
+        for _, log_key, log_item in normalized_logs:
+            with console_lock:
+                if log_key in forwarded_console_ids:
+                    continue
+
+            sms_content = str(log_item.get('sms') or '')
+            service = str(log_item.get('app_name') or '')
+            service_key = normalize_service_name(service)
+
+            # New flow requirement: channel forwarding only for WhatsApp/Facebook/Telegram.
+            if service_key not in {"whatsapp", "facebook", "telegram"}:
+                with console_lock:
+                    remember_console_log(log_key)
+                continue
+
+            if not is_console_otp_sms(sms_content, service):
+                with console_lock:
+                    remember_console_log(log_key)
+                continue
+
+            channel_message = build_console_channel_message(log_item)
+            masked_otp = extract_masked_otp_from_sms(sms_content) or "******"
+            range_value = str(log_item.get('range') or '').strip()
+            range_url = await build_range_deeplink(context, range_value, service_key)
+
+            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
+            if range_url:
+                channel_row.append(InlineKeyboardButton("Range", url=range_url))
+            channel_reply_markup = InlineKeyboardMarkup([channel_row])
+
+            try:
+                await context.bot.send_message(
+                    chat_id=OTP_CHANNEL_ID,
+                    text=channel_message,
+                    reply_markup=channel_reply_markup,
+                    parse_mode='HTML'
+                )
+                logger.info(f"Console OTP forwarded to channel: {log_key}")
+            except Exception as send_error:
+                logger.error(f"Error forwarding console OTP {log_key}: {type(send_error).__name__}: {send_error}")
+                continue
+
+            with console_lock:
+                remember_console_log(log_key)
+    except Exception as e:
+        logger.error(f"Error in monitor_console_logs: {e}")
         import traceback
         logger.error(traceback.format_exc())
 
@@ -3809,6 +4207,18 @@ def main():
             logger.error(f"❌ Error: {error}", exc_info=error)
     
     application.add_error_handler(error_handler)
+
+    # Global console stream monitor (masked OTP logs from /mdashboard/console)
+    if application.job_queue:
+        application.job_queue.run_repeating(
+            monitor_console_logs,
+            interval=3,
+            first=5,
+            name="console_otp_monitor"
+        )
+        logger.info("Console OTP monitor job started")
+    else:
+        logger.warning("Job queue not available; console OTP monitor not started")
     
     # Start bot with drop_pending_updates to avoid conflicts
     logger.info("Bot starting...")
