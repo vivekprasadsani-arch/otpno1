@@ -88,8 +88,31 @@ def init_database():
 # Initialize database on import
 init_database()
 
+class BestEffortLock:
+    """Non-blocking-ish lock to avoid freezing the event loop under contention."""
+    def __init__(self, timeout=0.05):
+        self._lock = threading.Lock()
+        self._timeout = timeout
+        self._acquired = False
+
+    def __enter__(self):
+        try:
+            self._acquired = self._lock.acquire(timeout=self._timeout)
+        except Exception:
+            self._acquired = False
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._acquired:
+            try:
+                self._lock.release()
+            except Exception:
+                pass
+        self._acquired = False
+        return False
+
 # Global locks for thread safety
-db_lock = threading.Lock()
+db_lock = BestEffortLock(timeout=0.05)
 user_jobs = {}  # Store latest monitoring job per user (older jobs may still run)
 console_lock = threading.Lock()
 console_bootstrapped = False
@@ -3180,7 +3203,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
                 # Try range_name first, then range_id (like otp_tool.py)
                 numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
-                logger.info(f"get_multiple_numbers returned: {numbers_data}")
+                logger.info(f"get_multiple_numbers returned {len(numbers_data) if numbers_data else 0} item(s)")
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
