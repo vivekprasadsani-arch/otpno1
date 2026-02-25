@@ -10,6 +10,7 @@ import json
 import re
 import hashlib
 import html
+from functools import partial
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.error import Conflict
@@ -100,6 +101,16 @@ bot_username_cache = None
 # Global API client - single session for all users
 global_api_client = None
 api_lock = threading.Lock()
+API_IO_WORKERS = int(os.getenv("API_IO_WORKERS", "120"))
+api_io_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=max(16, API_IO_WORKERS),
+    thread_name_prefix="api-io"
+)
+
+async def run_api_call(func, *args, **kwargs):
+    """Run blocking API call in thread pool to keep event loop responsive."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(api_io_executor, partial(func, *args, **kwargs))
 
 def get_global_api_client():
     """Get or create global API client (single session for all users)"""
@@ -1407,8 +1418,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     numbers_data = None
     selected_range = None
     for candidate in candidates:
-        with api_lock:
-            response = api_client.get_multiple_numbers(candidate, candidate, number_count)
+        response = await run_api_call(api_client.get_multiple_numbers, candidate, candidate, number_count)
         if response:
             numbers_data = response
             selected_range = candidate
@@ -1441,6 +1451,16 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
             f"📱 {num}",
             api_kwargs={"copy_text": {"text": num}}
         )])
+
+    # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
+    context.user_data.setdefault('range_mapping', {})
+    change_hash = hashlib.md5(f"{found_service}_{selected_range}".encode()).hexdigest()[:12]
+    context.user_data['range_mapping'][change_hash] = {
+        'service': found_service,
+        'range_id': selected_range,
+        'range_name': selected_range
+    }
+    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     country_flag = get_country_flag(country_name)
@@ -2181,7 +2201,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 # Use get_ranges("others") which searches many keywords
                 # No lock needed as APIClient handles internal state
-                ranges = api_client.get_ranges("others")
+                ranges = await run_api_call(api_client.get_ranges, "others")
                 
                 if not ranges:
                     await query.edit_message_text("❌ No services found.")
@@ -2266,8 +2286,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Invalid service.")
             return
         
-        with api_lock:
-            ranges = api_client.get_ranges(app_id)
+        ranges = await run_api_call(api_client.get_ranges, app_id)
         
         if not ranges:
             await query.edit_message_text(f"❌ No active ranges available for {service_name}.")
@@ -2392,7 +2411,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
                 
             # Get ranges "others" (cached)
-            ranges = api_client.get_ranges("others")
+            ranges = await run_api_call(api_client.get_ranges, "others")
             
             if not ranges:
                 await query.edit_message_text("❌ No ranges found (session expired?).")
@@ -2510,8 +2529,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ API connection error. Please try again.")
             return
         
-        with api_lock:
-            ranges = api_client.get_ranges(app_id)
+        ranges = await run_api_call(api_client.get_ranges, app_id)
         
         # Find ranges for this country - collect all matching ranges first
         # Match by detecting country from range name, not just API country field
@@ -2581,7 +2599,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # with api_lock:
                 # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+                numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
                 
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
@@ -2715,7 +2733,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # Get ranges "others" (cached fast)
-            ranges = api_client.get_ranges("others")
+            ranges = await run_api_call(api_client.get_ranges, "others")
             
             if not ranges:
                 await query.edit_message_text(f"❌ No ranges found for {service_name}.")
@@ -2858,7 +2876,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 app_id = service_name
             
             # Fetch ranges
-            ranges = api_client.get_ranges(app_id)
+            ranges = await run_api_call(api_client.get_ranges, app_id)
             
             # Filter by country
             filtered_ranges = []
@@ -2965,7 +2983,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("⏳ Discovering services (this may take a moment)...")
                 try:
                     # Get ranges "others"
-                    ranges = api_client.get_ranges("others")
+                    ranges = await run_api_call(api_client.get_ranges, "others")
                     
                     if not ranges:
                         await query.edit_message_text("❌ No services found.")
@@ -3046,8 +3064,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await query.edit_message_text("❌ Invalid service.")
                     return
 
-                with api_lock:
-                    ranges = api_client.get_ranges(app_id)
+                ranges = await run_api_call(api_client.get_ranges, app_id)
 
                 if not ranges or len(ranges) == 0:
                     await query.edit_message_text(f"❌ No ranges found for {service_name.upper()}.")
@@ -3162,7 +3179,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # with api_lock:
                 logger.info(f"Calling get_multiple_numbers with range_name={range_name}, range_id={range_id}, count={number_count}")
                 # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+                numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
                 logger.info(f"get_multiple_numbers returned: {numbers_data}")
                 
                 if not numbers_data or len(numbers_data) == 0:
@@ -3411,8 +3428,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         try:
-            with api_lock:
-                ranges = api_client.get_ranges(app_id)
+            ranges = await run_api_call(api_client.get_ranges, app_id)
             
             if not ranges:
                 await update.message.reply_text(f"❌ No active ranges available for {service_name}.")
@@ -3500,15 +3516,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session = get_user_session(user_id)
             number_count = session.get('number_count', 2) if session else 2
             
-            with api_lock:
-                # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+            # Try range_name first, then range_id (like otp_tool.py)
+            numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
 
-                # If user typed digits-only range, retry once with XXX suffix.
-                if (not numbers_data or len(numbers_data) == 0) and 'X' not in range_pattern:
-                    range_name = f"{range_pattern}XXX"
-                    range_id = range_name
-                    numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+            # If user typed digits-only range, retry once with XXX suffix.
+            if (not numbers_data or len(numbers_data) == 0) and 'X' not in range_pattern:
+                range_name = f"{range_pattern}XXX"
+                range_id = range_name
+                numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
                 await update.message.reply_text("❌ Failed to get numbers from this range. Please try again.")
@@ -3651,8 +3666,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         try:
-            with api_lock:
-                ranges = api_client.get_ranges(app_id)
+            ranges = await run_api_call(api_client.get_ranges, app_id)
             
             # Find ranges for this country - collect all matching ranges first
             # Match by detecting country from range name, not just API country field
@@ -3704,9 +3718,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Request numbers
             await update.message.reply_text(f"⏳ Requesting {number_count} number(s)...")
             
-            with api_lock:
-                # Try range_name first, then range_id (like otp_tool.py)
-                numbers_data = api_client.get_multiple_numbers(range_id, range_name, number_count)
+            # Try range_name first, then range_id (like otp_tool.py)
+            numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
                 await update.message.reply_text("❌ Failed to get numbers. Please try again.")
@@ -3844,7 +3857,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
         try:
             # We don't use api_lock here anymore to allow high concurrency
             # The APIClient.login method is now internally thread-safe
-            otp_results = api_client.check_otp_batch(numbers)
+            otp_results = await run_api_call(api_client.check_otp_batch, numbers)
         except Exception as api_error:
             logger.error(f"API error in check_otp_batch: {api_error}")
             return  # Skip this check, will retry next interval
@@ -4068,7 +4081,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        logs = api_client.get_console_logs()
+        logs = await run_api_call(api_client.get_console_logs)
         if not logs:
             return
 
