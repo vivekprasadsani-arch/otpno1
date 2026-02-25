@@ -1434,9 +1434,11 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         await update.message.reply_text("❌ Invalid range.")
         return
 
+    # Fast path for range-button links: console ranges often come without XXX.
+    # Try the pattern form first to avoid slow retries on invalid raw prefixes.
     candidates = [base_range]
     if 'X' not in base_range:
-        candidates.append(f"{base_range}XXX")
+        candidates = [f"{base_range}XXX", base_range]
 
     numbers_data = None
     selected_range = None
