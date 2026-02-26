@@ -690,6 +690,62 @@ class APIClient:
                 for r in all_ranges:
                     r['service'] = app_key.capitalize()
 
+            # Fallback source: console logs often have live range/service when getnum history is empty/rate-limited.
+            if not all_ranges:
+                try:
+                    logs = self.get_console_logs() or []
+                except Exception:
+                    logs = []
+
+                console_ranges = {}
+                for item in logs:
+                    if not isinstance(item, dict):
+                        continue
+
+                    range_val = str(item.get('range') or '').strip()
+                    if not range_val:
+                        continue
+
+                    app_name = str(item.get('app_name') or '').strip()
+                    service_norm = normalize_service_name(app_name)
+                    country = str(item.get('country') or detect_country_from_range(range_val) or 'Unknown').strip() or 'Unknown'
+                    operator = str(item.get('carrier') or 'Unknown').strip() or 'Unknown'
+
+                    passes = False
+                    service_label = app_name or "Other"
+                    if app_key in specific_services:
+                        passes = service_norm == app_key
+                        service_label = app_key.capitalize()
+                    elif app_key == "others":
+                        passes = service_norm not in specific_services
+                        service_label = app_name or "Other"
+                    else:
+                        passes = app_key in app_name.lower()
+                        service_label = app_name or app_id
+
+                    if not passes:
+                        continue
+
+                    key = (range_val, country, service_label)
+                    if key in console_ranges:
+                        continue
+
+                    console_ranges[key] = {
+                        'id': range_val,
+                        'range_id': range_val,
+                        'name': range_val,
+                        'pattern': range_val,
+                        'country': country,
+                        'cantryName': country,
+                        'operator': operator,
+                        'service': service_label,
+                        'datetime': str(item.get('time') or '')
+                    }
+
+                if console_ranges:
+                    all_ranges = list(console_ranges.values())
+                    logger.info(f"Built {len(all_ranges)} ranges from console fallback for app_id={app_id}")
+
             all_ranges.sort(key=lambda r: (str(r.get('country') or ''), str(r.get('name') or '')))
             logger.info(f"Built {len(all_ranges)} ranges from getnum/info for app_id={app_id}")
 
