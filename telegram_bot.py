@@ -476,6 +476,7 @@ class APIClient:
         }
         self._ranges_cache = {}  # Cache structure: {app_id: {'timestamp': time.time(), 'data': [...]}}
         self._cache_duration = 300  # 5 minutes cache
+        self._rate_limited_until = 0
         
         # Internal lock for thread safety (login/token refresh)
         self._lock = threading.Lock()
@@ -540,6 +541,9 @@ class APIClient:
     def _getnum_info_page(self, date_str, page=1, search="", status=""):
         """Fetch a single getnum info page."""
         try:
+            if time.time() < self._rate_limited_until:
+                return {"_rate_limited": True}
+
             if not self.auth_token and not self.login():
                 return None
 
@@ -561,6 +565,11 @@ class APIClient:
                     return None
                 headers["mauthtoken"] = self.auth_token
                 resp = self.session.get(url, headers=headers, timeout=10)
+
+            if resp.status_code == 429:
+                self._rate_limited_until = time.time() + 20
+                logger.warning(f"_getnum_info_page rate-limited (page={page}), backing off for 20s")
+                return {"_rate_limited": True}
 
             if resp.status_code != 200:
                 logger.warning(f"_getnum_info_page failed: status={resp.status_code} body={resp.text[:180]}")
@@ -586,18 +595,21 @@ class APIClient:
     def get_ranges(self, app_id, max_retries=3, keyword=""):
         """Build active range list from getnum/info history (access flow removed)."""
         try:
-            # Check cache first
             app_key = str(app_id or "others").strip().lower()
             cache_key = f"getnum_{app_key}"
-            if cache_key in self._ranges_cache:
-                entry = self._ranges_cache[cache_key]
-                if time.time() - entry['timestamp'] < self._cache_duration:
-                    logger.info(f"Returning cached ranges for {app_id}")
-                    return entry['data']
+            cached_entry = self._ranges_cache.get(cache_key)
+
+            if cached_entry and time.time() - cached_entry['timestamp'] < self._cache_duration:
+                logger.info(f"Returning cached ranges for {app_id}")
+                return cached_entry['data']
+
+            if time.time() < self._rate_limited_until and cached_entry:
+                logger.warning(f"Rate-limited; returning stale cached ranges for {app_id}")
+                return cached_entry.get('data', [])
 
             now_utc = datetime.now(timezone.utc)
-            day_offsets = [0, 1, 2]
-            pages_per_day = 6
+            day_offsets = [0]
+            pages_per_day = 2
             specific_services = {'whatsapp', 'facebook', 'telegram'}
             range_map = {}
             range_map_fallback = {}
@@ -606,6 +618,8 @@ class APIClient:
                 date_str = (now_utc - timedelta(days=day_offset)).strftime("%Y-%m-%d")
                 for page in range(1, pages_per_day + 1):
                     data = self._getnum_info_page(date_str, page=page, search="", status="")
+                    if isinstance(data, dict) and data.get("_rate_limited"):
+                        break
                     if not data:
                         break
 
@@ -672,7 +686,6 @@ class APIClient:
 
             all_ranges = list(range_map.values())
             if not all_ranges and app_key in specific_services:
-                # If service-specific filtering yields nothing, keep system usable using generic ranges.
                 all_ranges = list(range_map_fallback.values())
                 for r in all_ranges:
                     r['service'] = app_key.capitalize()
@@ -680,12 +693,16 @@ class APIClient:
             all_ranges.sort(key=lambda r: (str(r.get('country') or ''), str(r.get('name') or '')))
             logger.info(f"Built {len(all_ranges)} ranges from getnum/info for app_id={app_id}")
 
+            if not all_ranges and cached_entry:
+                logger.warning(f"No fresh ranges for {app_id}; returning stale cached ranges")
+                return cached_entry.get('data', [])
+
             self._ranges_cache[cache_key] = {
                 'timestamp': time.time(),
                 'data': all_ranges
             }
             return all_ranges
-            
+
         except Exception as e:
             logger.error(f"Error getting ranges: {e}")
             return []
@@ -1270,6 +1287,19 @@ def detect_country_from_number(number):
                 return COUNTRY_CODES[code]
     return None
 
+def _sanitize_start_token(value, max_len=48):
+    """Keep only deep-link safe chars."""
+    if not value:
+        return ""
+    return re.sub(r'[^A-Za-z0-9]', '', str(value))[:max_len]
+
+def infer_range_from_number(number):
+    """Best-effort range guess from a phone number."""
+    digits = ''.join(filter(str.isdigit, str(number or "")))
+    if len(digits) >= 7:
+        return f"{digits[:-3]}XXX"
+    return digits or None
+
 def normalize_service_name(service_name):
     """Normalize service text to internal key."""
     if not service_name:
@@ -1283,19 +1313,6 @@ def normalize_service_name(service_name):
     if "telegram" in normalized:
         return "telegram"
     return None
-
-def _sanitize_start_token(value, max_len=48):
-    """Keep only deep-link safe chars."""
-    if not value:
-        return ""
-    return re.sub(r'[^A-Za-z0-9]', '', str(value))[:max_len]
-
-def infer_range_from_number(number):
-    """Best-effort range guess from a phone number."""
-    digits = ''.join(filter(str.isdigit, str(number or "")))
-    if len(digits) >= 7:
-        return f"{digits[:-3]}XXX"
-    return digits or None
 
 def build_range_start_payload(range_value, service_name=None):
     """Build /start deep-link payload for range."""
@@ -1364,7 +1381,8 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         await update.message.reply_text("❌ Invalid range.")
         return
 
-    # Console range values may arrive without XXX suffix.
+    # Fast path for range-button links: console ranges often come without XXX.
+    # Try the pattern form first to avoid slow retries on invalid raw prefixes.
     candidates = [base_range]
     if 'X' not in base_range:
         candidates = [f"{base_range}XXX", base_range]
@@ -1406,6 +1424,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
             api_kwargs={"copy_text": {"text": num}}
         )])
 
+    # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
     context.user_data.setdefault('range_mapping', {})
     change_hash = hashlib.md5(f"{found_service}_{selected_range}".encode()).hexdigest()[:12]
     context.user_data['range_mapping'][change_hash] = {
@@ -4023,6 +4042,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     if masked_number.startswith('+'):
                         masked_number = masked_number[1:]  # Remove + for display
                     channel_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} {masked_number} {language}"
+                    
                     # Build deep-link URL for the "Range" button (channel only)
                     range_for_button = None
                     if job_data:
@@ -4037,11 +4057,11 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"OTP {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"OTP {otp}", api_kwargs={"copy_text": {"text": otp}})]
+                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
                     if range_url:
                         channel_row.append(InlineKeyboardButton("Range", url=range_url))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
@@ -4164,12 +4184,13 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                 with console_lock:
                     remember_console_log(log_key)
                 continue
+
             channel_message = build_console_channel_message(log_item)
             masked_otp = extract_masked_otp_from_sms(sms_content) or "******"
             range_value = str(log_item.get('range') or '').strip()
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"OTP {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
+            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
             if range_url:
                 channel_row.append(InlineKeyboardButton("Range", url=range_url))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
