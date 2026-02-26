@@ -1704,6 +1704,19 @@ def detect_language_from_sms(sms_content):
         return 'English'
 
     padded = f" {normalized} "
+    template_overrides = [
+        (" ny kaody facebook nao ", "Malagasy"),
+        (" kaody facebook nao ", "Malagasy"),
+        (" ny kaody ", "Malagasy"),
+        (" adalah kode facebook anda ", "Indonesian"),
+        (" kode konfirmasi facebook anda ", "Indonesian"),
+        (" est votre code facebook ", "French"),
+        (" is your facebook code ", "English"),
+    ]
+    for phrase, language in template_overrides:
+        if phrase in padded:
+            return language
+
     tokens = set(normalized.split())
     language_patterns = {
         'English': {
@@ -1761,9 +1774,10 @@ def detect_language_from_sms(sms_content):
         },
         'Indonesian': {
             'phrases': [
-                ('kode verifikasi', 6), ('jangan bagikan', 5), ('kode anda adalah', 5)
+                ('kode verifikasi', 6), ('jangan bagikan', 5), ('kode anda adalah', 5),
+                ('adalah kode facebook anda', 7), ('kode konfirmasi facebook anda', 7)
             ],
-            'tokens': [('verifikasi', 4), ('konfirmasi', 3), ('sandi', 3), ('anda', 2)],
+            'tokens': [('verifikasi', 4), ('konfirmasi', 3), ('sandi', 3), ('anda', 2), ('adalah', 2)],
         },
         'Malay': {
             'phrases': [
@@ -1781,7 +1795,7 @@ def detect_language_from_sms(sms_content):
             'phrases': [
                 ('kaody fanamarinana', 6), ('kaody anao', 5), ('aza zaraina', 5)
             ],
-            'tokens': [('fanamarinana', 4), ('tenimiafina', 4), ('hamarinina', 3)],
+            'tokens': [('fanamarinana', 4), ('tenimiafina', 4), ('hamarinina', 3), ('kaody', 4), ('nao', 2)],
         },
     }
 
@@ -3339,7 +3353,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'numbers': numbers_list,
                     'service': service_name,
                     'range_id': range_id,
-                    'start_time': time.time()
+                    'start_time': time.time(),
+                    'message_id': query.message.message_id
                 }
                 if country_name:
                     job_data['country'] = country_name
@@ -3878,18 +3893,54 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             del user_jobs[user_id]
         update_user_session(user_id, monitoring=0)
         try:
+            # Keep the same numbers visible and mark unresolved numbers as expired.
+            service_name = str(job_data.get('service') or 'Unknown')
+            country_name = str(job_data.get('country') or 'Unknown')
+            range_id = str(job_data.get('range_id') or '').strip()
+
+            service_icons = {
+                "whatsapp": "💬",
+                "facebook": "👥",
+                "telegram": "✈️"
+            }
+            service_icon = service_icons.get(service_name, "📱")
+            country_flag = get_country_flag(country_name) if country_name and country_name != 'Unknown' else "🌍"
+
+            keyboard = []
+            status_lines = []
+            for num in numbers:
+                status_label = "OTP" if num in received_otps else "Expired"
+                button_label = f"📱 {num} ({status_label})"
+                keyboard.append([InlineKeyboardButton(
+                    button_label,
+                    api_kwargs={"copy_text": {"text": num}}
+                )])
+                status_lines.append(f"{num} - {status_label}")
+
+            timeout_text = f"{service_icon} {service_name.upper()}\n"
+            if country_name and country_name != 'Unknown':
+                timeout_text += f"{country_flag} {country_name}\n"
+            if range_id:
+                timeout_text += f"📋 Range: {range_id}\n"
+            timeout_text += "\n⏱️ Timeout! No OTP received within 15 minutes.\n\n"
+            timeout_text += "Number status:\n" + "\n".join(status_lines)
+
+            timeout_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+
             # Edit the existing message instead of sending a new one
             if message_id:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=message_id,
-                    text=f"⏱️ Timeout! No OTP received within 15 minutes."
+                    text=timeout_text,
+                    reply_markup=timeout_markup
                 )
             else:
                 # Fallback to sending new message if message_id not available
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏱️ Timeout! No OTP received within 15 minutes."
+                    text=timeout_text,
+                    reply_markup=timeout_markup
                 )
         except Exception as e:
             logger.error(f"Error updating timeout message: {e}")
