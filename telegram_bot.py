@@ -475,7 +475,7 @@ class APIClient:
             "Sec-Fetch-Dest": "empty"
         }
         self._ranges_cache = {}  # Cache structure: {app_id: {'timestamp': time.time(), 'data': [...]}}
-        self._cache_duration = 300  # 5 minutes cache
+        self._cache_duration = int(os.getenv("RANGES_CACHE_SECONDS", "30"))
         
         # Internal lock for thread safety (login/token refresh)
         self._lock = threading.Lock()
@@ -493,7 +493,7 @@ class APIClient:
             try:
                 login_headers = {
                     **self.browser_headers,
-                    "Referer": f"{self.base_url}/mdashboard/access"
+                    "Referer": f"{self.base_url}/mdashboard/getnum"
                 }
                 # Hypothesized login endpoint
                 login_url = f"{self.base_url}/mapi/v1/mauth/login"
@@ -537,226 +537,164 @@ class APIClient:
                 logger.error(traceback.format_exc())
                 return False
     
-    def _fetch_ranges_with_keyword(self, app_id, keyword, use_origin=True, prefix=""):
-        """Helper to fetch ranges with a specific keyword"""
-        try:
-            if not self.auth_token:
-                return []
-            
-            headers = {
-                **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/access"
-            }
-            
-            # Build payload based on whether to use origin filter
-            payload = {
-                "prefix": prefix,
-                "keyword": keyword
-            }
-            
-            # Only add origin if use_origin is True (for WhatsApp/Facebook)
-            if use_origin:
-                payload["origin"] = app_id
-            else:
-                payload["origin"] = ""  # Blank for Others
-            
-            # Implementation of retry logic for token expiration
-            max_fetches = 2
-            for attempt in range(max_fetches):
-                # Update token in headers (in case it was refreshed)
-                if self.auth_token:
-                    headers["mauthtoken"] = self.auth_token
+    def _normalize_range_token(self, value):
+        """Normalize any range-like token to [0-9X] uppercase text."""
+        if value is None:
+            return ""
+        return re.sub(r'[^0-9Xx]', '', str(value)).upper()
 
-                resp = self.session.post(
-                    f"{self.base_url}/mapi/v1/mdashboard/access/info",
-                    json=payload,
-                    headers=headers,
-                    timeout=15
-                )
-                
-                # Check for token expiration
-                if resp.status_code in [401, 403] or "unauthorized" in resp.text.lower():
-                    logger.warning(f"Token expired (Status {resp.status_code}), refreshing...")
-                    self.auth_token = None
-                    if self.login():
-                        # Retry loop will pick up new token
-                        continue
-                    else:
-                        return [] # Login failed
-                
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
-                        ranges = []
-                        for item in data['data']:
-                            destination = item.get('destination', 'Unknown')
-                            country = destination.split('-')[0].strip() if '-' in destination else destination
-                            
-                            range_val = item.get('test_number')
-                            if range_val:
-                                range_obj = {
-                                    'id': range_val,  # Pattern like "9965579XXX" - PRIMARY identifier
-                                    'numerical_id': str(item.get('id')),  # Numerical ID for reference only
-                                    'range_id': range_val,  # Use pattern as range_id (API expects this)
-                                    'name': range_val,
-                                    'pattern': range_val,
-                                    'country': country,
-                                    'cantryName': country,
-                                    'operator': destination,
-                                    'limit_day': item.get('limit_day'),
-                                    'limit_hour': item.get('limit_hour'),
-                                    'datetime': item.get('datetime', '')  # Extract timestamp (e.g., "7 mins ago")
-                                }
-                                
-                                # For Others service, include the actual service name from API
-                                if not use_origin:
-                                    service_name = item.get('origin', 'Unknown')
-                                    range_obj['service'] = service_name
-                                    # Append service to operator for display
-                                    range_obj['operator'] = f"{destination} ({service_name})"
-                                
-                                ranges.append(range_obj)
-                        return ranges
+    def _normalize_country(self, raw_country, range_token="", number_token=""):
+        """Prefer explicit country; fallback to number/range based detection."""
+        country = str(raw_country or "").strip()
+        generic_labels = {"unknown", "other", "postpaid", "prepaid"}
+        if country and country.lower() not in generic_labels:
+            return country
+
+        detected = (
+            detect_country_from_range(range_token)
+            or detect_country_from_number(number_token)
+            or detect_country_from_range(number_token)
+        )
+        return detected or "Unknown"
+
+    def _build_ranges_from_console_logs(self, logs):
+        """
+        Build deduplicated range objects from console stream.
+        This replaces old /mdashboard/access scraping.
+        """
+        if not isinstance(logs, list) or not logs:
             return []
-        except Exception as e:
-            logger.warning(f"Error fetching with keyword '{keyword}': {e}")
-            return []
+
+        primary_services = {"whatsapp", "facebook", "telegram"}
+        primary_labels = {
+            "whatsapp": "WhatsApp",
+            "facebook": "Facebook",
+            "telegram": "Telegram",
+        }
+
+        range_map = {}
+
+        for idx, item in enumerate(logs):
+            if not isinstance(item, dict):
+                continue
+
+            app_name_raw = str(item.get('app_name') or "").strip()
+            if not app_name_raw:
+                continue
+
+            service_key = normalize_service_name(app_name_raw)
+            service_label = primary_labels.get(service_key, app_name_raw)
+
+            raw_range = self._normalize_range_token(item.get('range'))
+            raw_number = self._normalize_range_token(item.get('number'))
+
+            range_token = raw_range or raw_number
+            if not range_token:
+                continue
+
+            # getnum/number usually accepts pattern form; force XXX suffix when missing.
+            range_for_api = range_token if 'X' in range_token else f"{range_token}XXX"
+
+            # Ignore clearly invalid short prefixes.
+            if len(re.sub(r'[^0-9]', '', range_for_api)) < 4:
+                continue
+
+            country = self._normalize_country(item.get('country'), range_for_api, raw_number)
+            carrier = str(item.get('carrier') or "Unknown").strip() or "Unknown"
+            log_id = item.get('id')
+
+            # Existing UI sort expects "X mins ago" style text.
+            datetime_label = f"{idx} mins ago"
+
+            obj = {
+                'id': range_for_api,
+                'numerical_id': str(log_id) if log_id is not None else "",
+                'range_id': range_for_api,
+                'name': range_for_api,
+                'pattern': range_for_api,
+                'country': country,
+                'cantryName': country,
+                'operator': carrier,
+                'service': service_label,
+                'datetime': datetime_label,
+            }
+
+            # Keep newest occurrence per (service, range).
+            map_key = (service_label.lower(), range_for_api)
+            if map_key not in range_map:
+                range_map[map_key] = obj
+            else:
+                existing = range_map[map_key]
+                if existing.get('country') in {"Unknown", "Other", "postpaid", "prepaid"} and country not in {"Unknown", "Other", "postpaid", "prepaid"}:
+                    range_map[map_key] = obj
+
+        # Keep deterministic ordering by freshness first.
+        ranges = list(range_map.values())
+        ranges.sort(key=lambda x: parse_time_ago(x.get('datetime', '')))
+
+        # Drop exact duplicate range IDs to keep UI cleaner.
+        seen_ids = set()
+        unique_ranges = []
+        for r in ranges:
+            rid = str(r.get('range_id') or r.get('name') or "")
+            sid = str(r.get('service') or "").lower()
+            dedupe_key = (sid, rid)
+            if dedupe_key in seen_ids:
+                continue
+            seen_ids.add(dedupe_key)
+            unique_ranges.append(r)
+
+        # Filter out blank service rows from "others" view stability perspective.
+        return [r for r in unique_ranges if str(r.get('service') or "").strip()]
 
     def get_ranges(self, app_id, max_retries=3, keyword=""):
-        """Get ranges for application - Service-specific keyword strategy"""
+        """Get ranges using new getnum-era console stream metadata."""
         try:
             if not self.auth_token:
                 if not self.login():
                     return []
-            
-            # Check cache first
-            cache_key = f"{app_id}_multi"
+
+            app_id_norm = str(app_id or "").strip().lower()
+            cache_key = f"ranges_console::{app_id_norm}"
+            now_ts = time.time()
+
             if cache_key in self._ranges_cache:
                 entry = self._ranges_cache[cache_key]
-                if time.time() - entry['timestamp'] < self._cache_duration:
-                    logger.info(f"Returning cached ranges for {app_id}")
+                if now_ts - entry['timestamp'] < self._cache_duration:
                     return entry['data']
-            
-            # Determine if this is WhatsApp/Facebook/Telegram or Others
-            is_specific_service = app_id.lower() in ['whatsapp', 'facebook', 'telegram']
-            
-            # Keywords for WhatsApp/Facebook (with origin filter)
-            specific_keywords = [
-                app_id,           # Service name itself
-                "code",           # Verification code
-                "whatsapp",       # WhatsApp specific
-                "business",       # Business accounts
-                "otp",            # One-time password
-                "verify",         # Verification
-                "authentication", # Auth messages
-                "login",          # Login codes
-                "sms",            # SMS messages
-                "",               # Empty for general
-            ]
-            
-            # Keywords for Others (no origin filter - broader search)
-            others_keywords = [
-                "verification", "code", "otp", "verify", "sms", "message", "auth", "login",
-                "conf", "confirm", "pin", "secure", "access", "validate", "check", "pass",
-                "password", "text", "msg", "notification", "notify", "info", "alert", "update",
-                "app", "web", "net", "com", "org", "verify-code", "any", "vantage", ""
-            ]
-            
-            # Select keywords and origin usage based on service type
-            if is_specific_service:
-                keywords = specific_keywords
-                use_origin = True
-            elif app_id.lower() == "others":
-                keywords = others_keywords
-                use_origin = False
-            else:
-                # Specific other service (e.g. Google, Instagram)
-                # Search using the service name itself WITHOUT origin filter
-                # This matches the discovery behavior and is more compatible
-                keywords = [app_id]
-                use_origin = False
-            
-            all_ranges = []
-            unique_range_names = set()  # Use range name (phone number) for deduplication, not range_id
-            
-            # Fallback strategy for specific other services
-            if not is_specific_service and app_id.lower() != "others":
-                # Try specific keyword first (Fast)
-                keywords_list = [[app_id]]
-                # If that fails, we might need to fallback to broad search
-                # But broad search is slow (30 requests). 
-                # Let's try to be smart - maybe just try generic 'code', 'otp' if specific fails?
-                # Actually, let's just stick to specific first. If it returns 0, we can decide.
-                # However, for now, let's use the provided logic:
-                keywords = [app_id]
-            
-            all_ranges = []
-            unique_range_names = set()
-            
-            # Helper to run search
-            def run_search(kw_list):
-                found_count = 0
-                for kw in kw_list:
-                    ranges = self._fetch_ranges_with_keyword(app_id, kw, use_origin)
-                    if ranges and found_count == 0:
-                         # Log keys of first item for debugging (timestamp analysis)
-                         logger.info(f"DEBUG: Item keys: {list(ranges[0].keys())}")
-                         
-                    for r in ranges:
-                        range_name = r['name']
-                        if range_name not in unique_range_names:
-                            # Client-side filter
-                            if not is_specific_service and app_id.lower() != "others":
-                                range_service = r.get('service', '').strip()
-                                if range_service and app_id.lower() not in range_service.lower():
-                                    logger.info(f"Skipping range {range_name} (service={range_service}) for app_id={app_id}")
-                                    continue
-                                logger.info(f"Including range {range_name} (service={range_service}) for app_id={app_id}")
-                            
-                            unique_range_names.add(range_name)
-                            all_ranges.append(r)
-                            found_count += 1
-                return found_count
 
-            # Execute search
-            count = run_search(keywords)
-            
-            # Fallback for Others: If specific search yielded 0 results, try broad search
-            if count == 0 and not is_specific_service and app_id.lower() != "others":
-                logger.info(f"Specific search for '{app_id}' yielded 0 results. Falling back to broad search...")
-                # Use a subset of most likely keywords to save time, or full list?
-                # Full list is safer but slower. 
-                count = run_search(others_keywords)
+            logs = self.get_console_logs()
+            all_ranges = self._build_ranges_from_console_logs(logs)
+            if not all_ranges:
+                logger.warning(f"No ranges available from console source for app_id={app_id}")
+                self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': []}
+                return []
 
-            
-            # Extra searches for specific WhatsApp prefixes
-            if is_specific_service and 'whatsapp' in app_id.lower():
-                prefixes = ["225", "228", "229", "232", "236", "237", "244", "261", "977"]
-                logger.info(f"Fetching extra ranges for WhatsApp prefixes: {prefixes}")
-                for pfx in prefixes:
-                    ranges = self._fetch_ranges_with_keyword(app_id, "", use_origin, prefix=pfx)
-                    count = 0
-                    for r in ranges:
-                        range_name = r['name']
-                        if range_name not in unique_range_names:
-                            unique_range_names.add(range_name)
-                            all_ranges.append(r)
-                            count += 1
-                    if count > 0:
-                         logger.info(f"Prefix {pfx}: Found {count} new ranges")
+            primary_services = {"whatsapp", "facebook", "telegram"}
+            filtered = []
 
-            logger.info(f"Found {len(all_ranges)} unique ranges for {app_id} using {len(keywords)} keywords (origin_filter={use_origin})")
-            
-            # Update cache only if we found ranges
-            if len(all_ranges) > 0:
-                self._ranges_cache[cache_key] = {
-                    'timestamp': time.time(),
-                    'data': all_ranges
-                }
-            
-            return all_ranges
-            
+            for r in all_ranges:
+                service_label = str(r.get('service') or "").strip()
+                if not service_label:
+                    continue
+
+                service_norm = normalize_service_name(service_label)
+                service_lower = service_label.lower()
+
+                if app_id_norm in primary_services:
+                    if service_norm == app_id_norm:
+                        filtered.append(r)
+                elif app_id_norm == "others":
+                    if service_norm not in primary_services:
+                        filtered.append(r)
+                else:
+                    if app_id_norm in service_lower or service_lower in app_id_norm:
+                        filtered.append(r)
+
+            self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': filtered}
+            logger.info(f"Found {len(filtered)} ranges for {app_id} from new console source")
+            return filtered
+
         except Exception as e:
             logger.error(f"Error getting ranges: {e}")
             return []
@@ -780,41 +718,69 @@ class APIClient:
             if not self.auth_token:
                 if not self.login():
                     return None
-            
-            headers = {
-                **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/getnum?range={range_id}"
-            }
-            
-            # New API: POST /mapi/v1/mdashboard/getnum/number
-            payload = {
-                "range": range_id,
-                "is_national": False,
-                "remove_plus": False
-            }
-            
-            resp = self.session.post(
-                f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
-                json=payload,
-                headers=headers,
-                timeout=15
-            )
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'data' in data:
-                    number_data = data['data']
-                    # Response: {"data":{"number":"+937...", ...}}
-                    if isinstance(number_data, dict):
-                        if 'number' in number_data:
-                            return number_data
-                        # Handle potential alias
-                        if 'copy' in number_data:
-                            number_data['number'] = number_data['copy']
-                            return number_data
-            
-            logger.warning(f"get_number failed: {resp.text[:200]}")
+
+            normalized = self._normalize_range_token(range_id)
+            if not normalized:
+                return None
+
+            candidates = []
+            if 'X' in normalized:
+                candidates.append(normalized)
+            else:
+                candidates.append(f"{normalized}XXX")
+                candidates.append(normalized)
+
+            # Keep order and remove duplicates.
+            dedup_candidates = []
+            seen = set()
+            for c in candidates:
+                if c not in seen:
+                    seen.add(c)
+                    dedup_candidates.append(c)
+
+            for candidate_range in dedup_candidates:
+                headers = {
+                    **self.browser_headers,
+                    "mauthtoken": self.auth_token,
+                    "Referer": f"{self.base_url}/mdashboard/getnum?range={candidate_range}"
+                }
+
+                payload = {
+                    "range": candidate_range,
+                    "is_national": False,
+                    "remove_plus": False
+                }
+
+                resp = self.session.post(
+                    f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
+                    json=payload,
+                    headers=headers,
+                    timeout=15
+                )
+
+                if resp.status_code in [401, 403]:
+                    self.auth_token = None
+                    if self.login():
+                        headers["mauthtoken"] = self.auth_token
+                        resp = self.session.post(
+                            f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
+                            json=payload,
+                            headers=headers,
+                            timeout=15
+                        )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if 'data' in data:
+                        number_data = data['data']
+                        if isinstance(number_data, dict):
+                            if 'number' in number_data:
+                                return number_data
+                            if 'copy' in number_data:
+                                number_data['number'] = number_data['copy']
+                                return number_data
+
+            logger.warning(f"get_number failed for range={range_id}")
             return None
         except Exception as e:
             logger.error(f"Error getting number: {e}")
