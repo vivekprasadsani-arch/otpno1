@@ -121,6 +121,19 @@ forwarded_console_ids = set()
 forwarded_console_order = []
 MAX_FORWARDED_CONSOLE_IDS = 5000
 bot_username_cache = None
+CONSOLE_MONITOR_INTERVAL = int(os.getenv("CONSOLE_MONITOR_INTERVAL", "3"))
+CONSOLE_MAX_FORWARDS_PER_CYCLE = int(os.getenv("CONSOLE_MAX_FORWARDS_PER_CYCLE", "6"))
+CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
+_console_services_raw = os.getenv("CONSOLE_FORWARD_SERVICES", "whatsapp,telegram,facebook")
+CONSOLE_FORWARD_SERVICE_KEYS = set()
+for _svc in _console_services_raw.split(","):
+    _token = re.sub(r'[^a-z0-9]+', '', _svc.lower()).strip()
+    if "whatsapp" in _token:
+        CONSOLE_FORWARD_SERVICE_KEYS.add("whatsapp")
+    elif "facebook" in _token:
+        CONSOLE_FORWARD_SERVICE_KEYS.add("facebook")
+    elif "telegram" in _token:
+        CONSOLE_FORWARD_SERVICE_KEYS.add("telegram")
 
 # Global API client - single session for all users
 global_api_client = None
@@ -4183,9 +4196,19 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"Console monitor bootstrapped with {len(normalized_logs)} existing logs")
                 return
 
-        normalized_logs.sort(key=lambda row: (row[0] is None, row[0] if row[0] is not None else 0))
+        normalized_logs.sort(
+            key=lambda row: (row[0] is None, row[0] if row[0] is not None else 0),
+            reverse=True
+        )
+
+        cycle_deadline = time.time() + max(0.5, CONSOLE_CYCLE_BUDGET_SECONDS)
+        sent_this_cycle = 0
 
         for _, log_key, log_item in normalized_logs:
+            if time.time() > cycle_deadline:
+                logger.debug("Console monitor cycle budget reached; continuing next run")
+                break
+
             with console_lock:
                 if log_key in forwarded_console_ids:
                     continue
@@ -4194,8 +4217,8 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             service = str(log_item.get('app_name') or '')
             service_key = normalize_service_name(service)
 
-            # New flow requirement: channel forwarding only for WhatsApp/Telegram.
-            if service_key not in {"whatsapp", "telegram"}:
+            # Forward only allowed service groups (configurable via env).
+            if CONSOLE_FORWARD_SERVICE_KEYS and service_key not in CONSOLE_FORWARD_SERVICE_KEYS:
                 with console_lock:
                     remember_console_log(log_key)
                 continue
@@ -4229,6 +4252,11 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             with console_lock:
                 remember_console_log(log_key)
+
+            sent_this_cycle += 1
+            if sent_this_cycle >= max(1, CONSOLE_MAX_FORWARDS_PER_CYCLE):
+                logger.debug("Console monitor send cap reached; continuing next run")
+                break
     except Exception as e:
         logger.error(f"Error in monitor_console_logs: {e}")
         import traceback
@@ -4288,9 +4316,14 @@ def main():
     if application.job_queue:
         application.job_queue.run_repeating(
             monitor_console_logs,
-            interval=3,
+            interval=CONSOLE_MONITOR_INTERVAL,
             first=5,
-            name="console_otp_monitor"
+            name="console_otp_monitor",
+            job_kwargs={
+                "max_instances": 1,
+                "coalesce": True,
+                "misfire_grace_time": 15
+            }
         )
         logger.info("Console OTP monitor job started")
     else:
