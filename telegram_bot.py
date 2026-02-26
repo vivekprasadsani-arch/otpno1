@@ -124,16 +124,8 @@ bot_username_cache = None
 CONSOLE_MONITOR_INTERVAL = int(os.getenv("CONSOLE_MONITOR_INTERVAL", "3"))
 CONSOLE_MAX_FORWARDS_PER_CYCLE = int(os.getenv("CONSOLE_MAX_FORWARDS_PER_CYCLE", "6"))
 CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
-_console_services_raw = os.getenv("CONSOLE_FORWARD_SERVICES", "whatsapp,telegram,facebook")
-CONSOLE_FORWARD_SERVICE_KEYS = set()
-for _svc in _console_services_raw.split(","):
-    _token = re.sub(r'[^a-z0-9]+', '', _svc.lower()).strip()
-    if "whatsapp" in _token:
-        CONSOLE_FORWARD_SERVICE_KEYS.add("whatsapp")
-    elif "facebook" in _token:
-        CONSOLE_FORWARD_SERVICE_KEYS.add("facebook")
-    elif "telegram" in _token:
-        CONSOLE_FORWARD_SERVICE_KEYS.add("telegram")
+# Console stream -> OTP channel forwarding is limited to these services for now.
+CONSOLE_FORWARD_SERVICE_KEYS = {"whatsapp", "telegram"}
 
 # Global API client - single session for all users
 global_api_client = None
@@ -4212,7 +4204,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             service = str(log_item.get('app_name') or '')
             service_key = normalize_service_name(service)
 
-            # Forward only allowed service groups (configurable via env).
+            # Forward only allowed service groups (fixed for now).
             if CONSOLE_FORWARD_SERVICE_KEYS and service_key not in CONSOLE_FORWARD_SERVICE_KEYS:
                 with console_lock:
                     remember_console_log(log_key)
