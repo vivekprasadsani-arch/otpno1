@@ -10,6 +10,7 @@ import json
 import re
 import hashlib
 import html
+import unicodedata
 from functools import partial
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -1611,194 +1612,217 @@ def mask_number(number):
     
     return masked
 
+def _strip_accents(text):
+    """Normalize latin accents for matching."""
+    return ''.join(
+        ch for ch in unicodedata.normalize('NFKD', text)
+        if not unicodedata.combining(ch)
+    )
+
+
+def _detect_language_by_script(text):
+    """Fast script-based detection for non-latin SMS bodies."""
+    counts = {
+        'arabic': 0,
+        'cyrillic': 0,
+        'greek': 0,
+        'hebrew': 0,
+        'devanagari': 0,
+        'bengali': 0,
+        'thai': 0,
+        'hangul': 0,
+        'kana': 0,
+        'cjk': 0,
+    }
+    total_letters = 0
+
+    for ch in text:
+        if ch.isalpha():
+            total_letters += 1
+        cp = ord(ch)
+        if 0x0600 <= cp <= 0x06FF or 0x0750 <= cp <= 0x077F or 0x08A0 <= cp <= 0x08FF:
+            counts['arabic'] += 1
+        elif 0x0400 <= cp <= 0x052F:
+            counts['cyrillic'] += 1
+        elif 0x0370 <= cp <= 0x03FF:
+            counts['greek'] += 1
+        elif 0x0590 <= cp <= 0x05FF:
+            counts['hebrew'] += 1
+        elif 0x0900 <= cp <= 0x097F:
+            counts['devanagari'] += 1
+        elif 0x0980 <= cp <= 0x09FF:
+            counts['bengali'] += 1
+        elif 0x0E00 <= cp <= 0x0E7F:
+            counts['thai'] += 1
+        elif 0x1100 <= cp <= 0x11FF or 0xAC00 <= cp <= 0xD7AF:
+            counts['hangul'] += 1
+        elif 0x3040 <= cp <= 0x30FF:
+            counts['kana'] += 1
+        elif 0x4E00 <= cp <= 0x9FFF:
+            counts['cjk'] += 1
+
+    if total_letters == 0:
+        return None
+
+    script, count = max(counts.items(), key=lambda kv: kv[1])
+    # Require a minimum absolute/relative dominance to avoid mixed-text false positives.
+    if count < 3 or (count / total_letters) < 0.45:
+        return None
+
+    mapping = {
+        'arabic': 'Arabic',
+        'cyrillic': 'Russian',
+        'greek': 'Greek',
+        'hebrew': 'Hebrew',
+        'devanagari': 'Hindi',
+        'bengali': 'Bengali',
+        'thai': 'Thai',
+        'hangul': 'Korean',
+        'kana': 'Japanese',
+        'cjk': 'Chinese',
+    }
+    return mapping.get(script)
+
+
 def detect_language_from_sms(sms_content):
-    """Detect language from SMS content"""
+    """Detect SMS language with script + weighted OTP phrase matching."""
     if not sms_content:
         return 'Unknown'
-    
-    sms_lower = sms_content.lower()
-    
-    # Common language indicators
-    # NOTE: "code" is too generic (exists in many languages). We prefer longer phrases / accented words.
-    language_keywords = {
-        'English': ['your code is', 'verification code', 'otp', 'one-time password', 'do not share', 'verify', 'confirm', 'code is', 'code'],
-        'French': ['votre code est', 'vérification', 'vérifier', 'mot de passe', 'confirmer', 'connexion', 'sécurité', 'ne partagez pas'],
-        'Spanish': ['tu código es', 'código', 'verificación', 'contraseña', 'confirmar', 'verificar'],
-        'German': ['dein code ist', 'ihr code ist', 'bestätigung', 'passwort', 'bestätigen', 'verifizieren'],
-        'Italian': ['codice', 'verifica', 'password', 'confermare', 'verificare', 'il tuo codice è'],
-        'Portuguese': ['código', 'verificação', 'senha', 'confirmar', 'verificar', 'seu código é'],
-        'Russian': ['код', 'подтверждение', 'пароль', 'подтвердить', 'проверить', 'ваш код'],
-        'Arabic': ['رمز', 'التحقق', 'كلمة المرور', 'تأكيد', 'التحقق من', 'رمزك هو'],
-        'Hindi': ['कोड', 'सत्यापन', 'पासवर्ड', 'पुष्टि', 'सत्यापित', 'आपका कोड है'],
-        'Bengali': ['কোড', 'যাচাইকরণ', 'পাসওয়ার্ড', 'নিশ্চিত', 'যাচাই', 'আপনার কোড'],
-        'Chinese': ['代码', '验证', '密码', '确认', '验证', '您的代码是'],
-        'Japanese': ['コード', '確認', 'パスワード', '確認する', '検証', 'あなたのコードは'],
-        'Korean': ['코드', '확인', '비밀번호', '확인하다', '검증', '귀하의 코드는'],
-        'Turkish': ['kod', 'doğrulama', 'şifre', 'onayla', 'doğrula', 'kodunuz'],
-        'Dutch': ['uw code is', 'verificatie', 'wachtwoord', 'bevestigen', 'verifiëren'],
-        'Polish': ['kod', 'weryfikacja', 'hasło', 'potwierdź', 'zweryfikuj', 'twój kod to'],
-        'Thai': ['รหัส', 'การยืนยัน', 'รหัสผ่าน', 'ยืนยัน', 'ตรวจสอบ', 'รหัสของคุณคือ'],
-        'Vietnamese': ['mã', 'xác minh', 'mật khẩu', 'xác nhận', 'xác minh', 'mã của bạn là'],
-        'Indonesian': ['kode', 'verifikasi', 'kata sandi', 'konfirmasi', 'verifikasi', 'kode anda adalah'],
-        'Malay': ['kod', 'pengesahan', 'kata laluan', 'mengesahkan', 'mengesahkan', 'kod anda ialah'],
-        'Filipino': ['code', 'beripikasyon', 'password', 'kumpirmahin', 'beripikahin', 'ang iyong code ay'],
-        'Swedish': ['kod', 'verifiering', 'lösenord', 'bekräfta', 'verifiera', 'din kod är'],
-        'Norwegian': ['kode', 'verifisering', 'passord', 'bekreft', 'verifiser', 'din kode er'],
-        'Danish': ['kode', 'verificering', 'adgangskode', 'bekræft', 'verificer', 'din kode er'],
-        'Finnish': ['koodi', 'vahvistus', 'salasana', 'vahvista', 'vahvistaa', 'koodisi on'],
-        'Greek': ['κωδικός', 'επιβεβαίωση', 'κωδικός πρόσβασης', 'επιβεβαιώστε', 'επιβεβαιώστε', 'ο κωδικός σας είναι'],
-        'Hebrew': ['קוד', 'אימות', 'סיסמה', 'אשר', 'אמת', 'הקוד שלך הוא'],
-        'Romanian': ['cod', 'verificare', 'parolă', 'confirmă', 'verifică', 'codul tău este'],
-        'Czech': ['kód', 'ověření', 'heslo', 'potvrdit', 'ověřit', 'váš kód je'],
-        'Hungarian': ['kód', 'igazolás', 'jelszó', 'megerősít', 'igazol', 'a kódod'],
-        'Bulgarian': ['код', 'потвърждение', 'парола', 'потвърди', 'провери', 'вашият код е'],
-        'Croatian': ['kod', 'verifikacija', 'lozinka', 'potvrdi', 'verificiraj', 'vaš kod je'],
-        'Serbian': ['код', 'верификација', 'лозинка', 'потврди', 'верификуј', 'ваш код је'],
-        'Slovak': ['kód', 'overenie', 'heslo', 'potvrď', 'over', 'váš kód je'],
-        'Slovenian': ['koda', 'verifikacija', 'geslo', 'potrdi', 'verificiraj', 'vaša koda je'],
-        'Ukrainian': ['код', 'підтвердження', 'пароль', 'підтвердити', 'перевірити', 'ваш код'],
-        'Belarusian': ['код', 'пацвярджэнне', 'пароль', 'пацвердзіць', 'праверыць', 'ваш код'],
-        'Kazakh': ['код', 'растау', 'құпия сөз', 'растау', 'тексеру', 'сіздің кодыңыз'],
-        'Uzbek': ['kod', 'tasdiqlash', 'parol', 'tasdiqlash', 'tekshirish', 'sizning kodingiz'],
-        'Azerbaijani': ['kod', 'təsdiq', 'şifrə', 'təsdiqlə', 'yoxla', 'sizin kodunuz'],
-        'Georgian': ['კოდი', 'დადასტურება', 'პაროლი', 'დადასტურება', 'შემოწმება', 'თქვენი კოდია'],
-        'Armenian': ['կոդ', 'հաստատում', 'գաղտնաբառ', 'հաստատել', 'ստուգել', 'ձեր կոդն է'],
-        'Mongolian': ['код', 'баталгаажуулалт', 'нууц үг', 'баталгаажуулах', 'шалгах', 'таны код'],
-        'Nepali': ['कोड', 'प्रमाणीकरण', 'पासवर्ड', 'पुष्टि', 'प्रमाणित', 'तपाईंको कोड'],
-        'Sinhala': ['කේතය', 'සත්‍යාපනය', 'මුරපදය', 'තහවුරු', 'සත්‍යාපනය', 'ඔබේ කේතය'],
-        'Tamil': ['குறியீடு', 'சரிபார்ப்பு', 'கடவுச்சொல்', 'உறுதிப்படுத்த', 'சரிபார்க்க', 'உங்கள் குறியீடு'],
-        'Telugu': ['కోడ్', 'ధృవీకరణ', 'పాస్వర్డ్', 'నిర్ధారించండి', 'ధృవీకరించండి', 'మీ కోడ్'],
-        'Marathi': ['कोड', 'सत्यापन', 'पासवर्ड', 'पुष्टी', 'सत्यापित', 'तुमचा कोड'],
-        'Gujarati': ['કોડ', 'ચકાસણી', 'પાસવર્ડ', 'પુષ્ટિ', 'ચકાસો', 'તમારો કોડ'],
-        'Kannada': ['ಕೋಡ್', 'ಪರಿಶೀಲನೆ', 'ಪಾಸ್ವರ್ಡ್', 'ದೃಢೀಕರಿಸಿ', 'ಪರಿಶೀಲಿಸಿ', 'ನಿಮ್ಮ ಕೋಡ್'],
-        'Malayalam': ['കോഡ്', 'സ്ഥിരീകരണം', 'പാസ്‌വേഡ്', 'സ്ഥിരീകരിക്കുക', 'പരിശോധിക്കുക', 'നിങ്ങളുടെ കോഡ്'],
-        'Punjabi': ['ਕੋਡ', 'ਪੜਤਾਲ', 'ਪਾਸਵਰਡ', 'ਪੁਸ਼ਟੀ', 'ਪੜਤਾਲ', 'ਤੁਹਾਡਾ ਕੋਡ'],
-        'Urdu': ['کوڈ', 'تصدیق', 'پاس ورڈ', 'تصدیق', 'تصدیق', 'آپ کا کوڈ'],
-        'Pashto': ['کوډ', 'تصدیق', 'پاسورډ', 'تصدیق', 'تصدیق', 'ستاسو کوډ'],
-        'Persian': ['کد', 'تأیید', 'رمز عبور', 'تأیید', 'تأیید', 'کد شما'],
-        'Kurdish': ['کۆد', 'دڵنیاکردنەوە', 'تێپەڕەوشە', 'دڵنیاکردنەوە', 'دڵنیاکردنەوە', 'کۆدی تۆ'],
-        'Amharic': ['ኮድ', 'ማረጋገጥ', 'የይለፍ ቃል', 'አረጋግጥ', 'ማረጋገጥ', 'ኮድዎ'],
-        'Swahili': ['kodi', 'uthibitishaji', 'neno la siri', 'thibitisha', 'thibitisha', 'kodi yako ni'],
-        'Afrikaans': ['kode', 'verifikasie', 'wagwoord', 'bevestig', 'verifieer', 'jou kode is'],
-        'Zulu': ['ikhodi', 'ukuqinisekisa', 'iphasiwedi', 'qinisekisa', 'qinisekisa', 'ikhodi yakho iyinto'],
-        'Xhosa': ['ikhowudi', 'ukuqinisekisa', 'iphasiwedi', 'qinisekisa', 'qinisekisa', 'ikhowudi yakho'],
-        'Igbo': ['koodu', 'nkwenye', 'paswọọdụ', 'kwado', 'kwado', 'koodu gị bụ'],
-        'Yoruba': ['koodu', 'ijẹrisi', 'ọrọ aṣina', 'jẹrisi', 'jẹrisi', 'koodu rẹ jẹ'],
-        'Hausa': ['lambar', 'tabbatarwa', 'kalmar sirri', 'tabbatar', 'tabbatar', 'lambar ku'],
-        'Somali': ['koodhka', 'xaqiijinta', 'ereyga sirta ah', 'xaqiiji', 'xaqiiji', 'koodhkaagu waa'],
-        'Oromo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Tigrinya': ['ኮድ', 'ምርመራ', 'ዓንቀጽ', 'ምርመራ', 'ምርመራ', 'ኮድካ'],
-        'Kinyarwanda': ['kode', 'kwemeza', 'ijambo ryibanga', 'kwemeza', 'kwemeza', 'kode yawe ni'],
-        'Luganda': ['koodi', 'okukakasa', 'ekiwandiiko', 'kakasa', 'kakasa', 'koodi yo'],
-        'Kiswahili': ['nambari', 'uthibitishaji', 'neno la siri', 'thibitisha', 'thibitisha', 'nambari yako ni'],
-        'Malagasy': ['kaody', 'fanamarinana', 'tenimiafina', 'hamarinina', 'hamarinina', 'kaody anao'],
-        'Sesotho': ['khoutu', 'tiisetsa', 'lefoko la sephiri', 'tiisetsa', 'tiisetsa', 'khoutu ea hau'],
-        'Setswana': ['khoutu', 'tiisetsa', 'lefoko la sephiri', 'tiisetsa', 'tiisetsa', 'khoutu ya gago'],
-        'Xitsonga': ['khodi', 'ntirhisano', 'vito ra xiviri', 'tirhisa', 'tirhisa', 'khodi ya wena'],
-        'Tshivenda': ['khodi', 'u ṱoḓisisa', 'ḽiṅwalwa ḽa tshifhinga', 'ṱoḓisisa', 'ṱoḓisisa', 'khodi yawe'],
-        'isiNdebele': ['ikhodi', 'ukuqinisekisa', 'igama elingaphandle', 'qinisekisa', 'qinisekisa', 'ikhodi yakho'],
-        'siSwati': ['ikhodi', 'ukuqinisekisa', 'ligama lephasiwedi', 'qinisekisa', 'qinisekisa', 'ikhodi yakho'],
-        'Kirundi': ['kode', 'kwemeza', 'ijambo ryibanga', 'kwemeza', 'kwemeza', 'kode yawe ni'],
-        'Chichewa': ['khodi', 'kutsimikiza', 'mawu achinsinsi', 'tsimikiza', 'tsimikiza', 'khodi yanu'],
-        'Kikuyu': ['koodi', 'gũthibitithia', 'rĩtwa rĩa thĩinĩ', 'thibitithia', 'thibitithia', 'koodi yaku'],
-        'Luo': ['kod', 'kelo', 'wach kelo', 'kelo', 'kelo', 'kod ma'],
-        'Wolof': ['kood', 'seere', 'baat bu nekk ci', 'seere', 'seere', 'kood bi'],
-        'Fula': ['koode', 'seedugol', 'baatol seedugol', 'seedugol', 'seedugol', 'koode maa'],
-        'Mandinka': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Bambara': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Soninke': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Songhay': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Hausa': ['lambar', 'tabbatarwa', 'kalmar sirri', 'tabbatar', 'tabbatar', 'lambar ku'],
-        'Yoruba': ['koodu', 'ijẹrisi', 'ọrọ aṣina', 'jẹrisi', 'jẹrisi', 'koodu rẹ jẹ'],
-        'Igbo': ['koodu', 'nkwenye', 'paswọọdụ', 'kwado', 'kwado', 'koodu gị bụ'],
-        'Ewe': ['koodu', 'nudzudzɔ', 'ŋuti', 'nudzudzɔ', 'nudzudzɔ', 'koodu wò'],
-        'Twi': ['koodu', 'sɛɛ', 'asɛm', 'sɛɛ', 'sɛɛ', 'koodu wo'],
-        'Ga': ['koodu', 'sɛɛ', 'asɛm', 'sɛɛ', 'sɛɛ', 'koodu wo'],
-        'Fante': ['koodu', 'sɛɛ', 'asɛm', 'sɛɛ', 'sɛɛ', 'koodu wo'],
-        'Akan': ['koodu', 'sɛɛ', 'asɛm', 'sɛɛ', 'sɛɛ', 'koodu wo'],
-        'Bambara': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Wolof': ['kood', 'seere', 'baat bu nekk ci', 'seere', 'seere', 'kood bi'],
-        'Fula': ['koode', 'seedugol', 'baatol seedugol', 'seedugol', 'seedugol', 'koode maa'],
-        'Mandinka': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Soninke': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Songhay': ['koodo', 'seedeyaa', 'baatool seedeyaa', 'seedeyaa', 'seedeyaa', 'koodo maa'],
-        'Berber': ['akud', 'asentem', 'awal n usentem', 'sentem', 'sentem', 'akud nnek'],
-        'Tamazight': ['akud', 'asentem', 'awal n usentem', 'sentem', 'sentem', 'akud nnek'],
-        'Afar': ['kood', 'xaqiijinta', 'ereyga sirta ah', 'xaqiiji', 'xaqiiji', 'koodkaagu'],
-        'Oromo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Tigrinya': ['ኮድ', 'ምርመራ', 'ዓንቀጽ', 'ምርመራ', 'ምርመራ', 'ኮድካ'],
-        'Amharic': ['ኮድ', 'ማረጋገጥ', 'የይለፍ ቃል', 'አረጋግጥ', 'ማረጋገጥ', 'ኮድዎ'],
-        'Gurage': ['ኮድ', 'ማረጋገጥ', 'የይለፍ ቃል', 'አረጋግጥ', 'ማረጋገጥ', 'ኮድዎ'],
-        'Harari': ['ኮድ', 'ማረጋገጥ', 'የይለፍ ቃል', 'አረጋግጥ', 'ማረጋገጥ', 'ኮድዎ'],
-        'Sidamo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Gedeo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Hadiyya': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Kambaata': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Gamo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Gofa': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Wolaytta': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Bench': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Sheko': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Majang': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Suri': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Mursi': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Bodi': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Kwegu': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Karo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Hamer': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Banna': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Bashada': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Aari': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Dime': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Nyangatom': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Toposa': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Turkana': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Pokot': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Samburu': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Rendille': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'El Molo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Boni': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Aweer': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Dahalo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Yaaku': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Elgon': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Okiek': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Ogiek': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Akiek': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Ndorobo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Dorobo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Sanye': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Boni': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Aweer': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Dahalo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Yaaku': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Elgon': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Okiek': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Ogiek': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Akiek': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Ndorobo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Dorobo': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee'],
-        'Sanye': ['koodii', 'mirkaneessi', 'jecha icciitii', 'mirkaneessi', 'mirkaneessi', 'koodiin kee']
+
+    text = str(sms_content).strip()
+    if not text:
+        return 'Unknown'
+
+    script_language = _detect_language_by_script(text)
+    if script_language:
+        return script_language
+
+    normalized = _strip_accents(text).lower()
+    normalized = re.sub(r'[^a-z0-9\s]', ' ', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if not normalized:
+        return 'English'
+
+    padded = f" {normalized} "
+    tokens = set(normalized.split())
+    language_patterns = {
+        'English': {
+            'phrases': [
+                ('your code is', 5), ('verification code', 5), ('one time password', 5),
+                ('do not share', 4), ('security code', 4), ('use this code', 3)
+            ],
+            'tokens': [('otp', 3), ('verify', 2), ('secure', 2), ('password', 1)],
+        },
+        'French': {
+            'phrases': [
+                ('votre code est', 6), ('code de verification', 5), ('ne partagez pas', 5),
+                ('mot de passe', 4)
+            ],
+            'tokens': [('verifier', 3), ('confirmer', 2), ('connexion', 2), ('votre', 1)],
+        },
+        'Spanish': {
+            'phrases': [
+                ('tu codigo es', 6), ('codigo de verificacion', 5), ('no compartas', 5),
+                ('codigo de seguridad', 4)
+            ],
+            'tokens': [('contrasena', 4), ('verificacion', 3), ('confirmar', 2), ('tu', 1)],
+        },
+        'Portuguese': {
+            'phrases': [
+                ('seu codigo e', 6), ('codigo de verificacao', 5), ('nao compartilhe', 5),
+                ('codigo de seguranca', 4)
+            ],
+            'tokens': [('senha', 4), ('verificacao', 3), ('confirmar', 2), ('seu', 1)],
+        },
+        'German': {
+            'phrases': [
+                ('ihr code ist', 6), ('dein code ist', 6), ('nicht teilen', 5),
+                ('bestatigungscode', 5)
+            ],
+            'tokens': [('passwort', 4), ('verifizieren', 3), ('bestaetigen', 3)],
+        },
+        'Italian': {
+            'phrases': [
+                ('il tuo codice e', 6), ('codice di verifica', 5), ('non condividere', 5)
+            ],
+            'tokens': [('conferma', 3), ('verifica', 3), ('password', 2)],
+        },
+        'Dutch': {
+            'phrases': [
+                ('uw code is', 6), ('deel deze code niet', 5), ('verificatiecode', 5)
+            ],
+            'tokens': [('wachtwoord', 4), ('bevestig', 3), ('verifieren', 3)],
+        },
+        'Turkish': {
+            'phrases': [
+                ('dogrulama kodu', 6), ('kimseyle paylasmayin', 5)
+            ],
+            'tokens': [('kodunuz', 5), ('sifre', 4), ('dogrulama', 3), ('onay', 2)],
+        },
+        'Indonesian': {
+            'phrases': [
+                ('kode verifikasi', 6), ('jangan bagikan', 5), ('kode anda adalah', 5)
+            ],
+            'tokens': [('verifikasi', 4), ('konfirmasi', 3), ('sandi', 3), ('anda', 2)],
+        },
+        'Malay': {
+            'phrases': [
+                ('kod pengesahan', 6), ('jangan kongsi', 5), ('kod anda ialah', 5)
+            ],
+            'tokens': [('pengesahan', 4), ('sahkan', 3), ('laluan', 3), ('anda', 2)],
+        },
+        'Swahili': {
+            'phrases': [
+                ('msimbo wa kuthibitisha', 6), ('nambari yako ni', 5), ('usishiriki', 5)
+            ],
+            'tokens': [('uthibitishaji', 4), ('thibitisha', 3), ('neno', 2), ('siri', 2)],
+        },
+        'Malagasy': {
+            'phrases': [
+                ('kaody fanamarinana', 6), ('kaody anao', 5), ('aza zaraina', 5)
+            ],
+            'tokens': [('fanamarinana', 4), ('tenimiafina', 4), ('hamarinina', 3)],
+        },
     }
-    
-    # Score-based detection (prevents generic "code" forcing English)
+
     scores = {}
-    for lang, keywords in language_keywords.items():
+    for lang, rules in language_patterns.items():
         score = 0
-        for keyword in keywords:
-            if keyword and keyword in sms_lower:
-                # Longer phrases are more informative
-                score += max(1, len(keyword) // 4)
-        if score > 0:
+        for phrase, weight in rules['phrases']:
+            phrase_hits = padded.count(f" {phrase} ")
+            if phrase_hits:
+                score += phrase_hits * weight
+        for token, weight in rules['tokens']:
+            if token in tokens:
+                score += weight
+        if score:
             scores[lang] = score
 
-    # Pick best scoring language (if any)
-    if scores:
-        best_lang = max(scores.items(), key=lambda kv: kv[1])[0]
-        return best_lang
+    if not scores:
+        return 'English'
 
-    # Default fallback
-    return 'English'
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    best_language, best_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else 0
+
+    # Require minimum confidence and clear lead over runner-up.
+    if best_score < 4:
+        return 'English'
+    if second_score and (best_score - second_score) < 2:
+        # Resolve common close-pairs using unique markers.
+        if {'laluan', 'pengesahan', 'kongsi'} & tokens:
+            return 'Malay'
+        if {'verifikasi', 'konfirmasi', 'bagikan', 'sandi'} & tokens:
+            return 'Indonesian'
+        if {'senha', 'nao', 'seu'} & tokens:
+            return 'Portuguese'
+        if {'contrasena', 'compartas', 'tu'} & tokens:
+            return 'Spanish'
+        if {'votre', 'partagez', 'mot'} & tokens:
+            return 'French'
+
+    return best_language
+
 
 def extract_masked_otp_from_sms(sms_content):
     """Extract masked OTP token (e.g., ****** or ***-***)."""
@@ -4153,8 +4177,8 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             service = str(log_item.get('app_name') or '')
             service_key = normalize_service_name(service)
 
-            # New flow requirement: channel forwarding only for WhatsApp/Facebook/Telegram.
-            if service_key not in {"whatsapp", "facebook", "telegram"}:
+            # New flow requirement: channel forwarding only for WhatsApp/Telegram.
+            if service_key not in {"whatsapp", "telegram"}:
                 with console_lock:
                     remember_console_log(log_key)
                 continue
