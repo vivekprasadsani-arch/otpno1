@@ -2387,20 +2387,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Helper for UI Truncation
         def format_country_label(flag, name, time_str, max_len=30):
-            if not time_str:
-                return f"{flag} {name}"
-            
-            time_part = f" ({time_str})"
-            # Calculate remaining space for name
-            # flag (2) + space (1) + name + time_part
-            # name <= max_len - len(time_part) - 3
-            available_len = max_len - len(time_part) - 3
-            if available_len < 5: available_len = 5 # Safety floor
-            
+            # Keep country sort behavior by time, but do not show time text.
+            available_len = max_len - 3
+            if available_len < 5:
+                available_len = 5
+
             if len(name) > available_len:
-                name = name[:available_len-1] + "…"
-            
-            return f"{flag} {name}{time_part}"
+                name = name[:available_len - 3] + "..."
+
+            return f"{flag} {name}"
 
         for i in range(0, len(sorted_countries), 2):
             row = []
