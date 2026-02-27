@@ -11,6 +11,7 @@ import re
 import hashlib
 import html
 import unicodedata
+import random
 from functools import partial
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -43,6 +44,56 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+
+def _build_bengali_proverb_pool(target_size=1000):
+    """Build a deterministic pool of Bengali proverb-style motivation lines."""
+    starters = [
+        "ধৈর্য ধরলে", "সততা রাখলে", "পরিশ্রম করলে", "সময়কে সম্মান করলে", "ছোট পদক্ষেপ নিলে",
+        "লক্ষ্য ঠিক রাখলে", "মনোযোগ ধরে রাখলে", "নিয়মিত চেষ্টা করলে", "বিশ্বাস ধরে রাখলে", "ভুল থেকে শিখলে",
+        "সকালে শুরু করলে", "দৃঢ় থাকলে", "শৃঙ্খলা মানলে", "নিজেকে গুছিয়ে নিলে", "হাল না ছাড়লে",
+        "সমস্যাকে চ্যালেঞ্জ ভাবলে", "ভয়কে নিয়ন্ত্রণ করলে", "শুরুটা করে ফেললে", "অভ্যাস ঠিক করলে", "স্বপ্নে কাজ জুড়লে",
+        "উদ্যম বজায় রাখলে", "চিন্তা পরিষ্কার রাখলে", "কথার চেয়ে কাজ বাড়ালে", "অগ্রাধিকার ঠিক করলে", "সাহস নিয়ে এগোলে"
+    ]
+    middles = [
+        "সাফল্য একদিন দরজায় কড়া নাড়বেই", "ভাগ্যও পরিশ্রমীর পাশে দাঁড়ায়", "প্রতিদিনের অগ্রগতি বড় ফল আনে",
+        "অসম্ভবও ধীরে ধীরে সম্ভব হয়", "কষ্টের পরেই স্বস্তি আসে", "ভালো ফল সময় নিয়ে আসে",
+        "অন্ধকারের পরেই আলো আসে", "অভ্যাসই মানুষকে এগিয়ে দেয়", "চেষ্টা কখনো ব্যর্থ যায় না",
+        "নিজের ওপর ভরসাই সবচেয়ে বড় শক্তি", "ধীর গতি হলেও পথ ঠিক থাকে", "পতনের ভেতরেই শেখা থাকে",
+        "নিরবচ্ছিন্ন চেষ্টাই পার্থক্য গড়ে", "সময়মতো কাজই শান্তি দেয়", "সংগ্রামই চরিত্র গড়ে",
+        "মাটিতে থাকা মানুষই উঁচুতে ওঠে", "ভুল মানা মানুষ দ্রুত শেখে", "সৎ পথে দেরি হলেও জয় আসে",
+        "আজকের কষ্টই আগামীর সম্পদ", "এক ধাপ এগোলেই পথ ছোট হয়", "নীরব পরিশ্রম সবচেয়ে জোরে কথা বলে",
+        "চাপের মাঝেই দক্ষতা তৈরি হয়", "আত্মবিশ্বাস থাকলে পথ বের হয়", "শুরু ছোট হলেও শেষ বড় হতে পারে",
+        "যে থামে না, সে হারেও না"
+    ]
+    endings = [
+        "তাই আজও এগিয়ে যাও", "তাই নিজের গতিতে চলতে থাকো", "তাই কাজটাই ধরে রাখো",
+        "তাই মন খারাপ নয়, আবার শুরু করো", "তাই লক্ষ্য থেকে চোখ সরিও না", "তাই আজকের কাজ আজই শেষ করো",
+        "তাই হাল না ছেড়ে সামনে তাকাও", "তাই তোমার সময় অবশ্যই আসবে", "তাই চেষ্টা চালিয়ে যাও",
+        "তাই অল্প অল্প করে জিততে থাকো", "তাই নিজেকে আজই আরও ভালো করো", "তাই প্রতিদিন ১% উন্নতি করো",
+        "তাই স্থির থাকো, ফল আসবেই", "তাই সংকল্প শক্ত রাখো", "তাই পরিশ্রমকে সঙ্গী বানাও",
+        "তাই শৃঙ্খলাকেই শক্তি বানাও", "তাই বিশ্বাস রেখো, জয় হবে", "তাই কাজই তোমার পরিচয় হোক",
+        "তাই নিজের যাত্রাকে সম্মান দাও", "তাই এগোনোর গল্পটা থামিও না"
+    ]
+
+    lines = []
+    for a in starters:
+        for b in middles:
+            for c in endings:
+                lines.append(f"{a}, {b} - {c}।")
+
+    rng = random.Random(20260227)
+    rng.shuffle(lines)
+    return lines[:target_size]
+
+
+BN_OTP_MOTIVATION_LINES = _build_bengali_proverb_pool(1000)
+
+
+def get_random_bn_otp_motivation():
+    if not BN_OTP_MOTIVATION_LINES:
+        return "পরিশ্রমের ফল একদিন অবশ্যই আসে।"
+    return random.choice(BN_OTP_MOTIVATION_LINES)
 
 # Try to import cloudscraper for Cloudflare bypass
 try:
@@ -1901,14 +1952,14 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Show service selection first (fixed three: WhatsApp, Facebook, Others)
     keyboard = [
-        [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
-        [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
-        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
-        [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
+        [InlineKeyboardButton("WhatsApp", callback_data="rangechkr_service_whatsapp")],
+        [InlineKeyboardButton("Facebook", callback_data="rangechkr_service_facebook")],
+        [InlineKeyboardButton("Telegram", callback_data="rangechkr_service_telegram")],
+        [InlineKeyboardButton("Others", callback_data="rangechkr_service_others")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🗂️ Select service to view ranges:",
+        "Range Explorer\nSelect a service:",
         reply_markup=reply_markup
     )
 
@@ -1937,15 +1988,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Show main menu buttons
         keyboard = [
-            [KeyboardButton("📲 Get Number")],
-            [KeyboardButton("🧮 Set Number Count")],
-            [KeyboardButton("📊 My Stats")]
+            [KeyboardButton("Get Number")],
+            [KeyboardButton("Number Count")],
+            [KeyboardButton("My Stats")]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         await update.message.reply_text(
-            "✨ Welcome!\n\n"
-            "📲 Tap **Get Number** to start getting numbers.\n"
-            "🧮 Use **Set Number Count** to choose how many numbers you receive.\n"
+            "Welcome.\n\n"
+            "Use **Get Number** to start a new OTP session.\n"
+            "Use **Number Count** to choose how many numbers you receive per request.\n"
             f"📌 Current setting: **{current_count}** number(s)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
@@ -2294,13 +2345,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if total_pages > 1:
                     nav_row = []
                     if page > 0:
-                        nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data="sel_others_prev"))
-                    nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="sel_others_noop"))
+                        nav_row.append(InlineKeyboardButton("Prev", callback_data="sel_others_prev"))
+                    nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop"))
                     if page < total_pages - 1:
-                        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data="sel_others_next"))
+                        nav_row.append(InlineKeyboardButton("Next", callback_data="sel_others_next"))
                     keyboard.append(nav_row)
                 
-                keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+                keyboard.append([InlineKeyboardButton("Back", callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
@@ -2407,7 +2458,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}"))
             keyboard.append(row)
 
-        keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+        keyboard.append([InlineKeyboardButton("Back", callback_data="back_services")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
@@ -2527,7 +2578,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 keyboard.append(row)
                 
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="service_others")]) 
+            keyboard.append([InlineKeyboardButton("Back", callback_data="service_others")]) 
             # Back goes to Main Others List (handled by service_others in main handler)
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2705,7 +2756,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 service_icon = service_icons.get(service_name, "📱")
                 
                 keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country}")])
-                keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+                keyboard.append([InlineKeyboardButton("Back", callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Format message like the reference image
@@ -2820,7 +2871,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Back to Services", callback_data="rangechkr_service_others")])
+            keyboard.append([InlineKeyboardButton("Services", callback_data="rangechkr_service_others")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
@@ -2976,10 +3027,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Back Button
             if service_name.lower() in ['whatsapp', 'facebook']:
-                 keyboard.append([InlineKeyboardButton("🔙 Back to Countries", callback_data=f"rangechkr_service_{service_name}")])
+                 keyboard.append([InlineKeyboardButton("Countries", callback_data=f"rangechkr_service_{service_name}")])
             else:
                  # For Others, just go back to App List for now
-                 keyboard.append([InlineKeyboardButton("🔙 Back to Services", callback_data="rangechkr_service_others")])
+                 keyboard.append([InlineKeyboardButton("Services", callback_data="rangechkr_service_others")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -3068,13 +3119,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if total_pages > 1:
                         nav_row = []
                         if page > 0:
-                            nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data="rangechkr_others_prev"))
-                        nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
+                            nav_row.append(InlineKeyboardButton("Prev", callback_data="rangechkr_others_prev"))
+                        nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
                         if page < total_pages - 1:
-                            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data="rangechkr_others_next"))
+                            nav_row.append(InlineKeyboardButton("Next", callback_data="rangechkr_others_next"))
                         keyboard.append(nav_row)
                     
-                    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="rangechkr_back_services")])
+                    keyboard.append([InlineKeyboardButton("Back", callback_data="rangechkr_back_services")])
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
@@ -3145,7 +3196,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Back to Services", callback_data="rangechkr_back_services")])
+            keyboard.append([InlineKeyboardButton("Services", callback_data="rangechkr_back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             display_service_name = "Others" if service_name == "others" else service_name.upper()
@@ -3353,28 +3404,28 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Range checker back to services
     elif data == "rangechkr_back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
+            [InlineKeyboardButton("WhatsApp", callback_data="rangechkr_service_whatsapp")],
+            [InlineKeyboardButton("Facebook", callback_data="rangechkr_service_facebook")],
+            [InlineKeyboardButton("Telegram", callback_data="rangechkr_service_telegram")],
+            [InlineKeyboardButton("Others", callback_data="rangechkr_service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "🗂️ Select service to view ranges:",
+            "Range Explorer\nSelect a service:",
             reply_markup=reply_markup
         )
     
     # Back to services
     elif data == "back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others")]
+            [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp")],
+            [InlineKeyboardButton("Facebook", callback_data="service_facebook")],
+            [InlineKeyboardButton("Telegram", callback_data="service_telegram")],
+            [InlineKeyboardButton("Others", callback_data="service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "🎯 Select a service:",
+            "Select a service:",
             reply_markup=reply_markup
         )
 
@@ -3390,22 +3441,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "Get Number" button
-    if text in ("Get Number", "📲 Get Number"):
+    if text in ("Get Number", "📲 Get Number", "🚀 Get Number"):
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others")]
+            [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp")],
+            [InlineKeyboardButton("Facebook", callback_data="service_facebook")],
+            [InlineKeyboardButton("Telegram", callback_data="service_telegram")],
+            [InlineKeyboardButton("Others", callback_data="service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "🎯 Select a service:",
+            "Select a service:",
             reply_markup=reply_markup
         )
         return
     
     # Handle "Set Number Count" button
-    if text in ("Set Number Count", "🧮 Set Number Count"):
+    if text in ("Set Number Count", "🧮 Set Number Count", "⚙️ Number Count", "Number Count"):
         # Get current count
         session = get_user_session(user_id)
         current_count = session.get('number_count', 2) if session else 2
@@ -3419,29 +3470,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            f"📊 Set how many numbers you want to receive:\n\n"
-            f"Current setting: {current_count} numbers",
+            f"Numbers per request\n\n"
+            f"Current setting: {current_count} number(s)",
             reply_markup=reply_markup
         )
         return
     
     # Handle "My Stats" button
-    if text in ("My Stats", "📊 My Stats"):
+    if text in ("My Stats", "📊 My Stats", "📈 My Stats"):
         today_count = get_today_otp_count(user_id)
         bd_now = get_bd_now()
         await update.message.reply_text(
-            "📊 My Stats\n\n"
+            "My Stats\n\n"
             f"🕒 BD time now: {bd_now.strftime('%Y-%m-%d %I:%M:%S %p')}\n"
             f"✅ Today you received: {today_count} OTP(s)."
         )
         return
     
     # Handle service selection (old format - for backward compatibility)
-    if text in ["💬 WhatsApp", "👥 Facebook", "✈️ Telegram"]:
+    if text in ["💬 WhatsApp", "👥 Facebook", "✈️ Telegram", "🟢 WhatsApp", "🔵 Facebook", "🛩 Telegram", "WhatsApp", "Facebook", "Telegram"]:
         service_map = {
             "💬 WhatsApp": "whatsapp",
             "👥 Facebook": "facebook",
-            "✈️ Telegram": "telegram"
+            "✈️ Telegram": "telegram",
+            "🟢 WhatsApp": "whatsapp",
+            "🔵 Facebook": "facebook",
+            "🛩 Telegram": "telegram",
+            "WhatsApp": "whatsapp",
+            "Facebook": "facebook",
+            "Telegram": "telegram"
         }
         service_name = service_map[text]
         app_id_map = {
@@ -3514,7 +3571,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}"))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+            keyboard.append([InlineKeyboardButton("Back", callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
@@ -3662,16 +3719,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Error: {error_msg}")
     
     # Handle country selection (old format - for backward compatibility)
-    elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text:
-        if text == "🔙 Back":
+    elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text or "Back" in text:
+        if "Back" in text:
             keyboard = [
-                [KeyboardButton("📲 Get Number")],
-                [KeyboardButton("🧮 Set Number Count")],
-                [KeyboardButton("📊 My Stats")]
+                [KeyboardButton("Get Number")],
+                [KeyboardButton("Number Count")],
+                [KeyboardButton("My Stats")]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             await update.message.reply_text(
-                "✨ Ready when you are — tap 📲 Get Number to start:",
+                "Ready when you are. Tap Get Number to start.",
                 reply_markup=reply_markup
             )
             return
@@ -3810,7 +3867,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             service_icon = service_icons.get(service_name, "📱")
             
             keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}")])
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+            keyboard.append([InlineKeyboardButton("Back", callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format message like the reference image
@@ -4051,10 +4108,14 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     
                     # Detect language from SMS content
                     language = detect_language_from_sms(sms_content) if sms_content else 'English'
+                    motivation_line = html.escape(get_random_bn_otp_motivation())
                     
                     # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
-                    user_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}"
+                    user_otp_msg = (
+                        f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
+                        f"<b>আজকের প্রেরণা:</b> {motivation_line}"
+                    )
                     
                     # Format OTP message for CHANNEL: "🇩🇰 #DK WhatsApp 4540XXXX81 English"
                     # Mask number for channel (middle digits with XXXX)
