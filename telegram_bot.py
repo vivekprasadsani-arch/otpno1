@@ -13,7 +13,7 @@ import html
 import unicodedata
 import random
 from functools import partial
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, MessageEntity
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.error import Conflict
 import logging
@@ -127,6 +127,194 @@ SERVICE_APP_IDS = {
     "facebook": "Facebook",
     "telegram": "Telegram",
 }
+
+SERVICE_DISPLAY_NAMES = {
+    "whatsapp": "WhatsApp",
+    "facebook": "Facebook",
+    "telegram": "Telegram",
+    "others": "Others",
+}
+
+SERVICE_FALLBACK_ICONS = {
+    "whatsapp": "📱",
+    "facebook": "📘",
+    "telegram": "✈️",
+    "others": "✨",
+}
+
+SERVICE_CUSTOM_EMOJI_CANDIDATES = {
+    "whatsapp": ["📱", "💬", "🟢", "✅"],
+    "facebook": ["📘", "👥", "🔵", "👤"],
+    "telegram": ["✈️", "🛩", "📨", "🔷"],
+    "others": ["✨", "⭐"],
+}
+
+DEFAULT_SERVICE_CUSTOM_EMOJI_IDS = {
+    "whatsapp": "5233354831984353090",
+    "facebook": "5389064576333527180",
+    "telegram": "5364125616801073577",
+}
+
+DEFAULT_FLAG_CUSTOM_EMOJI_IDS = {
+    "🇬🇪": "5222152195771742239",
+    "🇨🇮": "5411136859944265277",
+    "🇩🇿": "5224260376174015500",
+}
+
+FLAG_EMOJI_SET_NAME = os.getenv("FLAG_EMOJI_SET_NAME", "FlagsByKoylli")
+SERVICE_EMOJI_SET_NAME = os.getenv("SERVICE_EMOJI_SET_NAME", "IconsEmoji_JABA")
+CUSTOM_EMOJI_TIMEOUT_SECONDS = float(os.getenv("CUSTOM_EMOJI_TIMEOUT_SECONDS", "12"))
+
+_custom_emoji_lock = threading.Lock()
+_custom_emoji_sticker_lookups = {}
+_service_custom_emoji_ids = None
+_service_custom_emoji_override_raw = os.getenv("CUSTOM_SERVICE_EMOJI_IDS", "").strip()
+
+
+def _parse_service_custom_emoji_overrides():
+    if not _service_custom_emoji_override_raw:
+        return {}
+
+    try:
+        parsed = json.loads(_service_custom_emoji_override_raw)
+    except Exception as e:
+        logger.warning(f"Invalid CUSTOM_SERVICE_EMOJI_IDS JSON: {e}")
+        return {}
+
+    if not isinstance(parsed, dict):
+        logger.warning("CUSTOM_SERVICE_EMOJI_IDS must be a JSON object")
+        return {}
+
+    normalized = {}
+    for key, value in parsed.items():
+        service_key = re.sub(r'[^a-z0-9]+', '', str(key).lower())
+        if service_key and value:
+            normalized[service_key] = str(value)
+    return normalized
+
+
+SERVICE_CUSTOM_EMOJI_OVERRIDES = {
+    **DEFAULT_SERVICE_CUSTOM_EMOJI_IDS,
+    **_parse_service_custom_emoji_overrides(),
+}
+
+
+def _fetch_custom_emoji_sticker_lookup(sticker_set_name):
+    if not sticker_set_name:
+        return {}
+
+    with _custom_emoji_lock:
+        if sticker_set_name in _custom_emoji_sticker_lookups:
+            return _custom_emoji_sticker_lookups[sticker_set_name]
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getStickerSet"
+    lookup = {}
+
+    try:
+        response = requests.get(
+            url,
+            params={"name": sticker_set_name},
+            timeout=CUSTOM_EMOJI_TIMEOUT_SECONDS
+        )
+        payload = response.json() if response.content else {}
+        sticker_set = payload.get("result", {}) if isinstance(payload, dict) else {}
+        stickers = sticker_set.get("stickers", []) if isinstance(sticker_set, dict) else []
+
+        for sticker in stickers:
+            if not isinstance(sticker, dict):
+                continue
+            alt_emoji = str(sticker.get("emoji") or "").strip()
+            custom_emoji_id = str(sticker.get("custom_emoji_id") or "").strip()
+            if alt_emoji and custom_emoji_id and alt_emoji not in lookup:
+                lookup[alt_emoji] = custom_emoji_id
+    except Exception as e:
+        logger.warning(f"Unable to load custom emoji sticker set {sticker_set_name}: {e}")
+
+    with _custom_emoji_lock:
+        _custom_emoji_sticker_lookups[sticker_set_name] = lookup
+
+    return lookup
+
+
+def custom_emoji_html(custom_emoji_id, fallback_emoji):
+    """Legacy HTML path: always return fallback emoji to avoid blank rendering."""
+    return html.escape(str(fallback_emoji or ""))
+
+
+def compose_message_with_entities(*parts):
+    """Build message text plus Telegram entities, including custom emoji."""
+    text_chunks = []
+    entities = []
+    offset = 0
+
+    def append_part(part):
+        nonlocal offset
+
+        if part is None:
+            return
+
+        if isinstance(part, list):
+            for item in part:
+                append_part(item)
+            return
+
+        if isinstance(part, tuple) and part:
+            kind = part[0]
+            if kind == "custom_emoji":
+                fallback = str(part[1] or "")
+                custom_emoji_id = str(part[2]) if len(part) > 2 and part[2] else None
+                text_chunks.append(fallback)
+                if custom_emoji_id:
+                    entities.append(
+                        MessageEntity(
+                            type="custom_emoji",
+                            offset=offset,
+                            length=len(fallback),
+                            custom_emoji_id=custom_emoji_id,
+                        )
+                    )
+                offset += len(fallback)
+                return
+            if kind in {"bold", "code"}:
+                value = str(part[1] or "")
+                text_chunks.append(value)
+                entities.append(
+                    MessageEntity(
+                        type=kind,
+                        offset=offset,
+                        length=len(value),
+                    )
+                )
+                offset += len(value)
+                return
+
+        value = str(part)
+        text_chunks.append(value)
+        offset += len(value)
+
+    for part in parts:
+        append_part(part)
+
+    text = "".join(text_chunks)
+    if entities:
+        entities = MessageEntity.adjust_message_entities_to_utf_16(text, entities)
+    return text, entities
+
+
+def build_inline_button(text, callback_data=None, url=None, api_kwargs=None, custom_emoji_id=None):
+    button_api_kwargs = dict(api_kwargs or {})
+    if custom_emoji_id:
+        button_api_kwargs.setdefault("icon_custom_emoji_id", custom_emoji_id)
+
+    kwargs = {}
+    if callback_data is not None:
+        kwargs["callback_data"] = callback_data
+    if url is not None:
+        kwargs["url"] = url
+    if button_api_kwargs:
+        kwargs["api_kwargs"] = button_api_kwargs
+
+    return InlineKeyboardButton(text, **kwargs)
 
 def init_database():
     """Initialize Supabase database (tables should be created manually via SQL)"""
@@ -1391,6 +1579,123 @@ def normalize_service_name(service_name):
         return "telegram"
     return None
 
+
+def get_service_key(service_name):
+    service_key = normalize_service_name(service_name)
+    if service_key:
+        return service_key
+
+    raw_value = str(service_name or "").strip().lower()
+    if raw_value in SERVICE_DISPLAY_NAMES:
+        return raw_value
+    return None
+
+
+def get_service_display_name(service_name):
+    service_key = get_service_key(service_name)
+    if service_key in SERVICE_DISPLAY_NAMES:
+        return SERVICE_DISPLAY_NAMES[service_key]
+    return str(service_name or "Unknown").strip() or "Unknown"
+
+
+def get_service_fallback_icon(service_name):
+    service_key = get_service_key(service_name)
+    return SERVICE_FALLBACK_ICONS.get(service_key, "📱")
+
+
+def get_service_custom_emoji_id(service_name):
+    global _service_custom_emoji_ids
+
+    service_key = get_service_key(service_name)
+    if not service_key:
+        return None
+
+    if _service_custom_emoji_ids is None:
+        sticker_lookup = _fetch_custom_emoji_sticker_lookup(SERVICE_EMOJI_SET_NAME)
+        resolved = {}
+        for key, candidates in SERVICE_CUSTOM_EMOJI_CANDIDATES.items():
+            for candidate in candidates:
+                custom_emoji_id = sticker_lookup.get(candidate)
+                if custom_emoji_id:
+                    resolved[key] = custom_emoji_id
+                    break
+        resolved.update(SERVICE_CUSTOM_EMOJI_OVERRIDES)
+        with _custom_emoji_lock:
+            if _service_custom_emoji_ids is None:
+                _service_custom_emoji_ids = resolved
+
+    return _service_custom_emoji_ids.get(service_key)
+
+
+def get_country_custom_emoji_id(country_name):
+    fallback_flag = get_country_flag(country_name)
+    if fallback_flag in DEFAULT_FLAG_CUSTOM_EMOJI_IDS:
+        return DEFAULT_FLAG_CUSTOM_EMOJI_IDS[fallback_flag]
+    return _fetch_custom_emoji_sticker_lookup(FLAG_EMOJI_SET_NAME).get(fallback_flag)
+
+
+def service_message_parts(service_name, case="title"):
+    display_name = get_service_display_name(service_name)
+    if case == "upper":
+        display_name = display_name.upper()
+    elif case == "capitalize":
+        display_name = display_name.capitalize()
+
+    return [
+        ("custom_emoji", get_service_fallback_icon(service_name), get_service_custom_emoji_id(service_name)),
+        f" {display_name}",
+    ]
+
+
+def country_message_parts(country_name):
+    safe_country = str(country_name or "Unknown").strip() or "Unknown"
+    flag = get_country_flag(safe_country)
+    return [
+        ("custom_emoji", flag, get_country_custom_emoji_id(safe_country)),
+        f" {safe_country}",
+    ]
+
+
+def format_service_text(service_name, case="title"):
+    display_name = get_service_display_name(service_name)
+    if case == "upper":
+        display_name = display_name.upper()
+    elif case == "capitalize":
+        display_name = display_name.capitalize()
+
+    icon = custom_emoji_html(
+        get_service_custom_emoji_id(service_name),
+        get_service_fallback_icon(service_name)
+    )
+    return f"{icon} {html.escape(display_name)}"
+
+
+def format_country_text(country_name):
+    safe_country = str(country_name or "Unknown").strip() or "Unknown"
+    flag = get_country_flag(safe_country)
+    flag_markup = custom_emoji_html(get_country_custom_emoji_id(safe_country), flag)
+    return f"{flag_markup} {html.escape(safe_country)}"
+
+
+def build_service_button(service_name, callback_data):
+    display_name = get_service_display_name(service_name)
+    custom_emoji_id = get_service_custom_emoji_id(service_name)
+    if custom_emoji_id:
+        text = display_name
+    else:
+        text = f"{get_service_fallback_icon(service_name)} {display_name}"
+    return build_inline_button(text, callback_data=callback_data, custom_emoji_id=custom_emoji_id)
+
+
+def build_country_button(country_name, callback_data):
+    safe_country = str(country_name or "Unknown").strip() or "Unknown"
+    custom_emoji_id = get_country_custom_emoji_id(safe_country)
+    if custom_emoji_id:
+        text = safe_country
+    else:
+        text = f"{get_country_flag(safe_country)} {safe_country}"
+    return build_inline_button(text, callback_data=callback_data, custom_emoji_id=custom_emoji_id)
+
 def build_range_start_payload(range_value, service_name=None):
     """Build /start deep-link payload for range."""
     range_token = _sanitize_start_token(range_value, max_len=40).upper()
@@ -1496,7 +1801,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
 
     keyboard = []
     for num in numbers_list:
-        keyboard.append([InlineKeyboardButton(
+        keyboard.append([build_inline_button(
             f"📱 {num}",
             api_kwargs={"copy_text": {"text": num}}
         )])
@@ -1509,27 +1814,22 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         'range_id': selected_range,
         'range_name': selected_range
     }
-    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
+    keyboard.append([build_inline_button("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    country_flag = get_country_flag(country_name)
-    service_icons = {
-        "whatsapp": "💬",
-        "facebook": "👥",
-        "telegram": "✈️"
-    }
-    service_icon = service_icons.get(found_service, "📱")
-    message_text = (
-        f"{service_icon} {found_service.upper()}\n"
-        f"{country_flag} {country_name}\n"
-        f"📋 Range: {selected_range}\n\n"
-        f"✅ {len(numbers_list)} numbers received:\n\n"
-        "Tap a number to copy it."
+    message_text, message_entities = compose_message_with_entities(
+        service_message_parts(found_service, case="upper"),
+        "\n",
+        country_message_parts(country_name),
+        f"\n📋 Range: {selected_range}\n\n",
+        f"✅ {len(numbers_list)} numbers received:\n\n",
+        "Tap a number to copy it.",
     )
 
     sent_msg = await update.message.reply_text(
         message_text,
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        entities=message_entities
     )
 
     update_user_session(
@@ -1924,15 +2224,15 @@ def build_console_channel_message(log_item):
     language = detect_language_from_sms(sms_content) if sms_content else 'English'
     service_key = normalize_service_name(service_raw)
 
-    country_flag = get_country_flag(country)
     country_code = get_country_code(country)
-    service_display = {
-        "whatsapp": "WhatsApp",
-        "facebook": "Facebook",
-        "telegram": "Telegram"
-    }.get(service_key, service_raw)
+    service_display = get_service_display_name(service_key or service_raw)
 
-    return f"{country_flag} #{country_code} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
+    return compose_message_with_entities(
+        country_message_parts(country),
+        f" #{country_code} ",
+        service_message_parts(service_key or service_display),
+        f" {number_masked} {language}",
+    )
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1953,10 +2253,10 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Show service selection first (fixed three: WhatsApp, Facebook, Others)
     keyboard = [
-        [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
-        [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
-        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
-        [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
+        [build_service_button("whatsapp", "rangechkr_service_whatsapp")],
+        [build_service_button("facebook", "rangechkr_service_facebook")],
+        [build_service_button("telegram", "rangechkr_service_telegram")],
+        [build_service_button("others", "rangechkr_service_others")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -2448,23 +2748,37 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _, time1 = get_country_best_time(c1)
             flag1 = get_country_flag(c1)
             label1 = format_country_label(flag1, c1, time1)
-            
-            row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}"))
+            custom_flag1 = get_country_custom_emoji_id(c1)
+            row.append(build_inline_button(
+                c1 if custom_flag1 else label1,
+                callback_data=f"country_{service_name}_{c1}",
+                custom_emoji_id=custom_flag1
+            ))
             
             if i + 1 < len(sorted_countries):
                 c2 = sorted_countries[i + 1]
                 _, time2 = get_country_best_time(c2)
                 flag2 = get_country_flag(c2)
                 label2 = format_country_label(flag2, c2, time2)
-                row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}"))
+                custom_flag2 = get_country_custom_emoji_id(c2)
+                row.append(build_inline_button(
+                    c2 if custom_flag2 else label2,
+                    callback_data=f"country_{service_name}_{c2}",
+                    custom_emoji_id=custom_flag2
+                ))
             keyboard.append(row)
 
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        message_text, message_entities = compose_message_with_entities(
+            service_message_parts(service_name, case="upper"),
+            " - Select Country:",
+        )
         await query.edit_message_text(
-            f"📱 {service_name.upper()} - Select Country:",
-            reply_markup=reply_markup
+            message_text,
+            reply_markup=reply_markup,
+            entities=message_entities
         )
         return
 
@@ -2567,15 +2881,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _, time1 = get_country_best_time(c1)
                 flag1 = get_country_flag(c1)
                 label1 = format_country_label(flag1, c1, time1)
-                
-                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}"))
+                custom_flag1 = get_country_custom_emoji_id(c1)
+                row.append(build_inline_button(
+                    c1 if custom_flag1 else label1,
+                    callback_data=f"country_{service_key}_{c1}",
+                    custom_emoji_id=custom_flag1
+                ))
                 
                 if i + 1 < len(sorted_countries):
                     c2 = sorted_countries[i + 1]
                     _, time2 = get_country_best_time(c2)
                     flag2 = get_country_flag(c2)
                     label2 = format_country_label(flag2, c2, time2)
-                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}"))
+                    custom_flag2 = get_country_custom_emoji_id(c2)
+                    row.append(build_inline_button(
+                        c2 if custom_flag2 else label2,
+                        callback_data=f"country_{service_key}_{c2}",
+                        custom_emoji_id=custom_flag2
+                    ))
                 
                 keyboard.append(row)
                 
@@ -2583,7 +2906,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Back goes to Main Others List (handled by service_others in main handler)
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(f"📱 {service_name} - Select Country:", reply_markup=reply_markup)
+            message_text, message_entities = compose_message_with_entities(
+                service_message_parts(service_name),
+                " - Select Country:",
+            )
+            await query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                entities=message_entities
+            )
             
         except Exception as e:
             logger.error(f"Error in service_others: {e}")
@@ -2743,34 +3074,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             display_num = '+' + digits_only
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
-                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
-                
-                # Get country flag
-                country_flag = get_country_flag(country_name)
-                
-                # Get service icon
-                service_icons = {
-                    "whatsapp": "💬",
-                    "facebook": "👥",
-                    "telegram": "✈️"
-                }
-                service_icon = service_icons.get(service_name, "📱")
-                
-                keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country}")])
-                keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+                    keyboard.append([build_inline_button(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+
+                keyboard.append([build_inline_button("🔄 Next Number", callback_data=f"country_{service_name}_{country}")])
+                keyboard.append([build_inline_button("🔙 Back", callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Format message like the reference image
-                message = f"Country: {country_flag} {country_name}\n"
-                message += f"Service: {service_icon} {service_name.capitalize()}\n"
-                message += f"Waiting for OTP...... ⏳"
+                message, message_entities = compose_message_with_entities(
+                    "Country: ",
+                    country_message_parts(country_name),
+                    "\nService: ",
+                    service_message_parts(service_name),
+                    "\nWaiting for OTP...... ⏳",
+                )
                 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=query.message.message_id,
                     text=message,
                     reply_markup=reply_markup,
-                    parse_mode='HTML'
+                    entities=message_entities
                 )
             except Exception as e:
                 logger.error(f"Error fetching numbers: {e}")
@@ -2859,25 +3183,34 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             for i in range(0, len(country_list), 2):
                 row = []
-                flag1 = get_country_flag(country_list[i])
-                row.append(InlineKeyboardButton(
-                    f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}"
+                custom_flag1 = get_country_custom_emoji_id(country_list[i])
+                label1 = country_list[i] if custom_flag1 else f"{get_country_flag(country_list[i])} {country_list[i]}"
+                row.append(build_inline_button(
+                    label1,
+                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}",
+                    custom_emoji_id=custom_flag1
                 ))
                 if i + 1 < len(country_list):
-                    flag2 = get_country_flag(country_list[i + 1])
-                    row.append(InlineKeyboardButton(
-                        f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}"
+                    custom_flag2 = get_country_custom_emoji_id(country_list[i + 1])
+                    label2 = country_list[i + 1] if custom_flag2 else f"{get_country_flag(country_list[i + 1])} {country_list[i + 1]}"
+                    row.append(build_inline_button(
+                        label2,
+                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}",
+                        custom_emoji_id=custom_flag2
                     ))
                 keyboard.append(row)
             
             keyboard.append([InlineKeyboardButton("🔙 Services", callback_data="rangechkr_service_others")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            message_text, message_entities = compose_message_with_entities(
+                service_message_parts(service_name),
+                " - Select Country:",
+            )
             await query.edit_message_text(
-                f"📋 {service_name} - Select Country:",
-                reply_markup=reply_markup
+                message_text,
+                reply_markup=reply_markup,
+                entities=message_entities
             )
         except Exception as e:
             logger.error(f"Error fetching ranges for {service_name}: {e}")
@@ -3035,10 +3368,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            display_service = service_name.upper() if service_name in ['whatsapp', 'facebook'] else service_name
+            message_text, message_entities = compose_message_with_entities(
+                service_message_parts(
+                    service_name,
+                    case='upper' if service_name in ['whatsapp', 'facebook'] else 'title'
+                ),
+                f" - {country} ({len(filtered_ranges)} ranges):\nSelect a range:",
+            )
             await query.edit_message_text(
-                f"📋 {display_service} - {country} ({len(filtered_ranges)} ranges):\nSelect a range:",
-                reply_markup=reply_markup
+                message_text,
+                reply_markup=reply_markup,
+                entities=message_entities
             )
 
         except Exception as e:
@@ -3148,7 +3488,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ranges = await run_api_call(api_client.get_ranges, app_id)
 
                 if not ranges or len(ranges) == 0:
-                    await query.edit_message_text(f"❌ No ranges found for {service_name.upper()}.")
+                    message_text, message_entities = compose_message_with_entities(
+                        "❌ No ranges found for ",
+                        service_message_parts(service_name, case="upper"),
+                        ".",
+                    )
+                    await query.edit_message_text(
+                        message_text,
+                        entities=message_entities
+                    )
                     return
             
             # Group ranges by country - detect from range name if country not available
@@ -3184,26 +3532,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             for i in range(0, len(country_list), 2):
                 row = []
-                flag1 = get_country_flag(country_list[i])
-                row.append(InlineKeyboardButton(
-                    f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}"
+                custom_flag1 = get_country_custom_emoji_id(country_list[i])
+                label1 = country_list[i] if custom_flag1 else f"{get_country_flag(country_list[i])} {country_list[i]}"
+                row.append(build_inline_button(
+                    label1,
+                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}",
+                    custom_emoji_id=custom_flag1
                 ))
                 if i + 1 < len(country_list):
-                    flag2 = get_country_flag(country_list[i + 1])
-                    row.append(InlineKeyboardButton(
-                        f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}"
+                    custom_flag2 = get_country_custom_emoji_id(country_list[i + 1])
+                    label2 = country_list[i + 1] if custom_flag2 else f"{get_country_flag(country_list[i + 1])} {country_list[i + 1]}"
+                    row.append(build_inline_button(
+                        label2,
+                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}",
+                        custom_emoji_id=custom_flag2
                     ))
                 keyboard.append(row)
             
             keyboard.append([InlineKeyboardButton("🔙 Services", callback_data="rangechkr_back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            display_service_name = "Others" if service_name == "others" else service_name.upper()
+            display_service_name = "others" if service_name == "others" else service_name
+            message_text, message_entities = compose_message_with_entities(
+                service_message_parts(
+                    display_service_name,
+                    case='upper' if service_name != 'others' else 'title'
+                ),
+                " - Select Country:",
+            )
             await query.edit_message_text(
-                f"📋 {display_service_name} - Select Country:",
-                reply_markup=reply_markup
+                message_text,
+                reply_markup=reply_markup,
+                entities=message_entities
             )
         except Exception as e:
             logger.error(f"Error loading ranges: {e}")
@@ -3321,7 +3681,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for num in numbers_list:
                     display_num = num
                     # Use copy_text via api_kwargs - no callback_data needed for copy
-                    keyboard.append([InlineKeyboardButton(
+                    keyboard.append([build_inline_button(
                         f"📱 {display_num}",
                         api_kwargs={"copy_text": {"text": display_num}}
                     )])
@@ -3329,32 +3689,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Use hash for change numbers button too
                 change_hash = hashlib.md5(f"{service_name}_{range_id}".encode()).hexdigest()[:12]
                 context.user_data['range_mapping'][change_hash] = {'service': service_name, 'range_id': range_id}
-                keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
+                keyboard.append([build_inline_button("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # Get country flag
-                country_flag = get_country_flag(country_name) if country_name else "🌍"
-                
-                # Get service icon
-                service_icons = {
-                    "whatsapp": "💬",
-                    "facebook": "👥",
-                    "telegram": "✈️"
-                }
-                service_icon = service_icons.get(service_name, "📱")
-                
-                message_text = f"{service_icon} {service_name.upper()}\n"
+
+                parts = [service_message_parts(service_name, case="upper"), "\n"]
                 if country_name:
-                    message_text += f"{country_flag} {country_name}\n"
-                message_text += f"📋 Range: {range_id}\n\n"
-                message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
-                message_text += "Tap a number to copy it."
+                    parts.extend([country_message_parts(country_name), "\n"])
+                parts.extend([
+                    f"📋 Range: {range_id}\n\n",
+                    f"✅ {len(numbers_list)} numbers received:\n\n",
+                    "Tap a number to copy it.",
+                ])
+                message_text, message_entities = compose_message_with_entities(*parts)
                 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=query.message.message_id,
                     text=message_text,
-                    reply_markup=reply_markup
+                    reply_markup=reply_markup,
+                    entities=message_entities
                 )
                 
                 # Store numbers and start monitoring
@@ -3405,10 +3758,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Range checker back to services
     elif data == "rangechkr_back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
+            [build_service_button("whatsapp", "rangechkr_service_whatsapp")],
+            [build_service_button("facebook", "rangechkr_service_facebook")],
+            [build_service_button("telegram", "rangechkr_service_telegram")],
+            [build_service_button("others", "rangechkr_service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3419,10 +3772,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Back to services
     elif data == "back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others")]
+            [build_service_button("whatsapp", "service_whatsapp")],
+            [build_service_button("facebook", "service_facebook")],
+            [build_service_button("telegram", "service_telegram")],
+            [build_service_button("others", "service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3444,10 +3797,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle "Get Number" button
     if text in ("Get Number", "📲 Get Number", "🚀 Get Number"):
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others")]
+            [build_service_button("whatsapp", "service_whatsapp")],
+            [build_service_button("facebook", "service_facebook")],
+            [build_service_button("telegram", "service_telegram")],
+            [build_service_button("others", "service_others")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -3565,19 +3918,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create inline keyboard rows (2 buttons per row)
             for i in range(0, len(country_list), 2):
                 row = []
-                flag1 = get_country_flag(country_list[i])
-                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}"))
+                custom_flag1 = get_country_custom_emoji_id(country_list[i])
+                label1 = country_list[i] if custom_flag1 else f"{get_country_flag(country_list[i])} {country_list[i]}"
+                row.append(build_inline_button(
+                    label1,
+                    callback_data=f"country_{service_name}_{country_list[i]}",
+                    custom_emoji_id=custom_flag1
+                ))
                 if i + 1 < len(country_list):
-                    flag2 = get_country_flag(country_list[i + 1])
-                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}"))
+                    custom_flag2 = get_country_custom_emoji_id(country_list[i + 1])
+                    label2 = country_list[i + 1] if custom_flag2 else f"{get_country_flag(country_list[i + 1])} {country_list[i + 1]}"
+                    row.append(build_inline_button(
+                        label2,
+                        callback_data=f"country_{service_name}_{country_list[i + 1]}",
+                        custom_emoji_id=custom_flag2
+                    ))
                 keyboard.append(row)
             
             keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            message_text, message_entities = compose_message_with_entities(
+                service_message_parts(service_name, case="upper"),
+                " - Select Country:",
+            )
             await update.message.reply_text(
-                f"📱 {service_name.upper()} - Select Country:",
-                reply_markup=reply_markup
+                message_text,
+                reply_markup=reply_markup,
+                entities=message_entities
             )
         except Exception as e:
             logger.error(f"Error in handle_message service selection: {e}")
@@ -3597,7 +3965,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         found_service = "whatsapp"
         range_name = range_pattern
         range_id = range_pattern
-        await update.message.reply_text("⏳ Buying directly via WhatsApp...")
+        message_text, message_entities = compose_message_with_entities(
+            "⏳ Buying directly via ",
+            service_message_parts(found_service),
+            "...",
+        )
+        await update.message.reply_text(
+            message_text,
+            entities=message_entities
+        )
         
         try:
             # Get user's number count preference
@@ -3645,7 +4021,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for num in numbers_list:
                 display_num = num
                 # Use copy_text via api_kwargs - no callback_data needed for copy
-                keyboard.append([InlineKeyboardButton(
+                keyboard.append([build_inline_button(
                     f"📱 {display_num}",
                     api_kwargs={"copy_text": {"text": display_num}}
                 )])
@@ -3655,30 +4031,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data['range_mapping'] = {}
             change_hash = hashlib.md5(f"{found_service}_{range_id}".encode()).hexdigest()[:12]
             context.user_data['range_mapping'][change_hash] = {'service': found_service, 'range_id': range_id}
-            keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
+            keyboard.append([build_inline_button("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Get country flag
-            country_flag = get_country_flag(country_name) if country_name else "🌍"
-            
-            # Get service icon
-            service_icons = {
-                "whatsapp": "💬",
-                "facebook": "👥",
-                "telegram": "✈️"
-            }
-            service_icon = service_icons.get(found_service, "📱")
-            
-            message_text = f"{service_icon} {found_service.upper()}\n"
+            parts = [service_message_parts(found_service, case="upper"), "\n"]
             if country_name:
-                message_text += f"{country_flag} {country_name}\n"
-            message_text += f"📋 Range: {range_id}\n\n"
-            message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
-            message_text += "Tap a number to copy it."
+                parts.extend([country_message_parts(country_name), "\n"])
+            parts.extend([
+                f"📋 Range: {range_id}\n\n",
+                f"✅ {len(numbers_list)} numbers received:\n\n",
+                "Tap a number to copy it.",
+            ])
+            message_text, message_entities = compose_message_with_entities(*parts)
             
             sent_msg = await update.message.reply_text(
                 message_text,
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
+                entities=message_entities
             )
             
             # Store numbers and start monitoring
@@ -3854,32 +4223,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + digits_only
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
-                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
-            
-            # Get country flag
-            country_flag = get_country_flag(country_name)
-            
-            # Get service icon
-            service_icons = {
-                "whatsapp": "💬",
-                "facebook": "👥",
-                "telegram": "✈️"
-            }
-            service_icon = service_icons.get(service_name, "📱")
-            
-            keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}")])
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+                keyboard.append([build_inline_button(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+
+            keyboard.append([build_inline_button("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}")])
+            keyboard.append([build_inline_button("🔙 Back", callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format message like the reference image
-            message = f"Country: {country_flag} {country_name}\n"
-            message += f"Service: {service_icon} {service_name.capitalize()}\n"
-            message += f"Waiting for OTP...... ⏳"
+            message, message_entities = compose_message_with_entities(
+                "Country: ",
+                country_message_parts(country_name),
+                "\nService: ",
+                service_message_parts(service_name),
+                "\nWaiting for OTP...... ⏳",
+            )
             
             sent_msg = await update.message.reply_text(
                 message,
                 reply_markup=reply_markup,
-                parse_mode='HTML'
+                entities=message_entities
             )
         except Exception as e:
             logger.error(f"Error in handle_message country selection: {e}")
@@ -3922,32 +4284,27 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             country_name = str(job_data.get('country') or 'Unknown')
             range_id = str(job_data.get('range_id') or '').strip()
 
-            service_icons = {
-                "whatsapp": "💬",
-                "facebook": "👥",
-                "telegram": "✈️"
-            }
-            service_icon = service_icons.get(service_name, "📱")
-            country_flag = get_country_flag(country_name) if country_name and country_name != 'Unknown' else "🌍"
-
             keyboard = []
             status_lines = []
             for num in numbers:
                 status_label = "OTP" if num in received_otps else "Expired"
                 button_label = f"📱 {num} ({status_label})"
-                keyboard.append([InlineKeyboardButton(
+                keyboard.append([build_inline_button(
                     button_label,
                     api_kwargs={"copy_text": {"text": num}}
                 )])
                 status_lines.append(f"{num} - {status_label}")
 
-            timeout_text = f"{service_icon} {service_name.upper()}\n"
+            parts = [service_message_parts(service_name, case="upper"), "\n"]
             if country_name and country_name != 'Unknown':
-                timeout_text += f"{country_flag} {country_name}\n"
+                parts.extend([country_message_parts(country_name), "\n"])
             if range_id:
-                timeout_text += f"📋 Range: {range_id}\n"
-            timeout_text += "\n⏱️ Timeout! No OTP received within 15 minutes.\n\n"
-            timeout_text += "Number status:\n" + "\n".join(status_lines)
+                parts.append(f"📋 Range: {range_id}\n")
+            parts.extend([
+                "\n⏱️ Timeout! No OTP received within 15 minutes.\n\n",
+                "Number status:\n" + "\n".join(status_lines),
+            ])
+            timeout_text, timeout_entities = compose_message_with_entities(*parts)
 
             timeout_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
 
@@ -3957,14 +4314,16 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     chat_id=user_id,
                     message_id=message_id,
                     text=timeout_text,
-                    reply_markup=timeout_markup
+                    reply_markup=timeout_markup,
+                    entities=timeout_entities
                 )
             else:
                 # Fallback to sending new message if message_id not available
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=timeout_text,
-                    reply_markup=timeout_markup
+                    reply_markup=timeout_markup,
+                    entities=timeout_entities
                 )
         except Exception as e:
             logger.error(f"Error updating timeout message: {e}")
@@ -4103,19 +4462,24 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                         if len(digits_only) >= 10:
                             display_number = digits_only
                     
-                    # Get country flag and code
-                    country_flag = get_country_flag(country)
                     country_code = get_country_code(country)
+                    service_display = get_service_display_name(service)
                     
                     # Detect language from SMS content
                     language = detect_language_from_sms(sms_content) if sms_content else 'English'
-                    motivation_line = html.escape(get_random_bn_otp_motivation())
+                    motivation_line = get_random_bn_otp_motivation()
                     
                     # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
-                    user_otp_msg = (
-                        f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
-                        f"<b>আজকের প্রেরণা:</b> {motivation_line}"
+                    user_otp_msg, user_otp_entities = compose_message_with_entities(
+                        country_message_parts(country),
+                        f" #{country_code} ",
+                        service_message_parts(service),
+                        " ",
+                        ("code", display_number),
+                        f" {language}\n\n",
+                        ("bold", "আজকের প্রেরণা:"),
+                        f" {motivation_line}",
                     )
                     
                     # Format OTP message for CHANNEL: "🇩🇰 #DK WhatsApp 4540XXXX81 English"
@@ -4123,7 +4487,12 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     masked_number = mask_number(number)
                     if masked_number.startswith('+'):
                         masked_number = masked_number[1:]  # Remove + for display
-                    channel_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} {masked_number} {language}"
+                    channel_otp_msg, channel_otp_entities = compose_message_with_entities(
+                        country_message_parts(country),
+                        f" #{country_code} ",
+                        service_message_parts(service),
+                        f" {masked_number} {language}",
+                    )
                     
                     # Build deep-link URL for the "Range" button (channel only)
                     range_for_button = None
@@ -4139,13 +4508,13 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    user_keyboard = [[build_inline_button(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
+                    channel_row = [build_inline_button(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
                     if range_url:
-                        channel_row.append(InlineKeyboardButton("Range", url=range_url))
+                        channel_row.append(build_inline_button("Range", url=range_url))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
                     
                     # Send OTP message to user FIRST (important!)
@@ -4156,7 +4525,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                             chat_id=user_id,
                             text=user_otp_msg,
                             reply_markup=user_reply_markup,
-                            parse_mode='HTML'
+                            entities=user_otp_entities
                         )
                         user_message_sent = True
                         logger.info(f"✅ OTP message sent successfully to user {user_id} (message_id: {sent_msg.message_id}) for {number}: {otp}")
@@ -4171,7 +4540,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                             chat_id=OTP_CHANNEL_ID,
                             text=channel_otp_msg,
                             reply_markup=channel_reply_markup,
-                            parse_mode='HTML'
+                            entities=channel_otp_entities
                         )
                         logger.info(f"✅ OTP forwarded to channel {OTP_CHANNEL_ID} for {number}: {otp}")
                     except Exception as e:
@@ -4277,14 +4646,14 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                     remember_console_log(log_key)
                 continue
 
-            channel_message = build_console_channel_message(log_item)
+            channel_message, channel_entities = build_console_channel_message(log_item)
             masked_otp = extract_masked_otp_from_sms(sms_content) or "******"
             range_value = str(log_item.get('range') or '').strip()
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
+            channel_row = [build_inline_button(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
             if range_url:
-                channel_row.append(InlineKeyboardButton("Range", url=range_url))
+                channel_row.append(build_inline_button("Range", url=range_url))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
 
             try:
@@ -4292,7 +4661,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                     chat_id=OTP_CHANNEL_ID,
                     text=channel_message,
                     reply_markup=channel_reply_markup,
-                    parse_mode='HTML'
+                    entities=channel_entities
                 )
                 logger.info(f"Console OTP forwarded to channel: {log_key}")
             except Exception as send_error:
