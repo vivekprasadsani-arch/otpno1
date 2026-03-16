@@ -136,17 +136,23 @@ SERVICE_DISPLAY_NAMES = {
 }
 
 SERVICE_FALLBACK_ICONS = {
-    "whatsapp": "💬",
-    "facebook": "👥",
+    "whatsapp": "📱",
+    "facebook": "📘",
     "telegram": "✈️",
     "others": "✨",
 }
 
 SERVICE_CUSTOM_EMOJI_CANDIDATES = {
-    "whatsapp": ["💬", "📱", "🟢", "✅"],
-    "facebook": ["👥", "📘", "🔵", "👤"],
+    "whatsapp": ["📱", "💬", "🟢", "✅"],
+    "facebook": ["📘", "👥", "🔵", "👤"],
     "telegram": ["✈️", "🛩", "📨", "🔷"],
     "others": ["✨", "⭐"],
+}
+
+DEFAULT_SERVICE_CUSTOM_EMOJI_IDS = {
+    "whatsapp": "5233354831984353090",
+    "facebook": "5389064576333527180",
+    "telegram": "5364125616801073577",
 }
 
 FLAG_EMOJI_SET_NAME = os.getenv("FLAG_EMOJI_SET_NAME", "FlagsByKoylli")
@@ -181,7 +187,10 @@ def _parse_service_custom_emoji_overrides():
     return normalized
 
 
-SERVICE_CUSTOM_EMOJI_OVERRIDES = _parse_service_custom_emoji_overrides()
+SERVICE_CUSTOM_EMOJI_OVERRIDES = {
+    **DEFAULT_SERVICE_CUSTOM_EMOJI_IDS,
+    **_parse_service_custom_emoji_overrides(),
+}
 
 
 def _fetch_custom_emoji_sticker_lookup(sticker_set_name):
