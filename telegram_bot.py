@@ -407,27 +407,26 @@ CONSOLE_MAX_FORWARDS_PER_CYCLE = int(os.getenv("CONSOLE_MAX_FORWARDS_PER_CYCLE",
 CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
 # Console stream -> OTP channel forwarding is limited to these services for now.
 CONSOLE_FORWARD_SERVICE_KEYS = {"whatsapp", "telegram"}
-
+def parse_time_ago(time_str):
+    """Parse 'X mins ago' string to minutes (float)"""
+    try:
+        if not time_str or 'just now' in time_str.lower():
+            return 0
+        
+        parts = str(time_str).lower().split()
         if len(parts) >= 2:
-            val = int(parts[0])
+            val = float(parts[0])
             unit = parts[1]
-            
-            if 'sec' in unit:
-                return val / 60
-            elif 'min' in unit:
-                return val
-            elif 'hour' in unit:
-                return val * 60
-            elif 'day' in unit:
-                return val * 1440
-            elif 'week' in unit:
-                return val * 10080
-            elif 'month' in unit:
-                return val * 43200
-                
+            if 'sec' in unit: return val / 60
+            if 'min' in unit: return val
+            if 'hour' in unit: return val * 60
+            if 'day' in unit: return val * 1440
+            if 'week' in unit: return val * 10080
+            if 'month' in unit: return val * 43200
         return 999999
-    except:
+    except Exception:
         return 999999
+
 
 def get_user_status(user_id):
     """Get user approval status from database"""
