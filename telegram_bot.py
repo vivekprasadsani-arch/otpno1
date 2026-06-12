@@ -670,6 +670,9 @@ def get_today_otp_count(user_id):
 def resolve_app_id(service_name, context):
     """Resolve app_id from known services or per-user custom services."""
     if service_name in SERVICE_APP_IDS:
+        return SERVICE_APP_IDS[service_name]
+    return service_name or "Others"
+
 def detect_country_from_range(range_name):
     """Detect country from range name (e.g., 24491541XXXX -> Angola)"""
     if not range_name:
