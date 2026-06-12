@@ -654,11 +654,59 @@ class APIClient:
         return [r for r in unique_ranges if str(r.get('service') or "").strip()]
 
     def get_ranges(self, app_id, max_retries=3, keyword=""):
-        """Get ranges using new getnum-era console stream metadata."""
+        """Get ranges using /liveaccess endpoint"""
         try:
-            if not self.auth_token:
-                if not self.login():
-                    return []
+            app_id_norm = str(app_id or "").strip().lower()
+            cache_key = f"ranges_live::{app_id_norm}"
+            now_ts = time.time()
+
+            if cache_key in self._ranges_cache:
+                entry = self._ranges_cache[cache_key]
+                if now_ts - entry['timestamp'] < self._cache_duration:
+                    return entry['data']
+
+            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/liveaccess"}
+            resp = self.session.get(f"{self.base_url}/liveaccess", headers=headers, timeout=10)
+            
+            if resp.status_code != 200:
+                return []
+                
+            payload = resp.json()
+            if payload.get("meta", {}).get("code") != 200:
+                return []
+                
+            services = payload.get("data", {}).get("services", [])
+            all_ranges = []
+            primary_services = {"whatsapp", "facebook", "telegram"}
+            
+            for s in services:
+                sid = s.get("sid", "")
+                sid_norm = normalize_service_name(sid)
+                
+                # Filter by app_id (whatsapp, facebook, telegram, or others)
+                match = False
+                if app_id_norm in primary_services:
+                    if sid_norm == app_id_norm: match = True
+                elif app_id_norm == "others":
+                    if sid_norm not in primary_services: match = True
+                else:
+                    if app_id_norm in sid.lower(): match = True
+                
+                if match:
+                    for r_val in s.get("ranges", []):
+                        all_ranges.append({
+                            'id': r_val,
+                            'range_id': r_val,
+                            'name': r_val,
+                            'service': sid,
+                            'country': detect_country_from_range(r_val) or "Unknown",
+                            'operator': "Unknown"
+                        })
+            
+            self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': all_ranges}
+            return all_ranges
+        except Exception as e:
+            logger.error(f"Error getting ranges: {e}"); return []
 
             app_id_norm = str(app_id or "").strip().lower()
             cache_key = f"ranges_console::{app_id_norm}"
@@ -706,17 +754,24 @@ class APIClient:
             return []
 
     def get_applications(self, max_retries=3):
-        """Get available applications - Mapped from SERVICE_APP_IDS for compatibility"""
-        # The new API doesn't list "all apps" easily, we search by name.
-        # But for 'Others' menu, we might want to return some defaults or nothing.
-        # Current bot logic allows 'Others' to fetch dynamic list.
-        # For now, we return the primary ones + maybe some popular ones if we want?
-        # Or simply return empty list for others if we don't support dynamic discovery yet.
-        # Let's return the primary ones to ensure they appear if needed.
-        apps = []
-        for name, app_id in SERVICE_APP_IDS.items():
-            apps.append({'id': app_id, 'name': app_id})
-        return apps
+        """Get available applications from /liveaccess"""
+        try:
+            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/liveaccess"}
+            resp = self.session.get(f"{self.base_url}/liveaccess", headers=headers, timeout=10)
+            apps = []
+            if resp.status_code == 200:
+                payload = resp.json()
+                services = payload.get("data", {}).get("services", [])
+                for s in services:
+                    sid = s.get("sid", "")
+                    if sid: apps.append({'id': sid, 'name': sid})
+            
+            if not apps: # Fallback to hardcoded
+                for name, app_id in SERVICE_APP_IDS.items():
+                    apps.append({'id': app_id, 'name': app_id})
+            return apps
+        except Exception as e:
+            logger.error(f"Error getting applications: {e}"); return []
     
     def get_number(self, range_id):
         """Request a number from a range - Updated for new API"""
