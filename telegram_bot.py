@@ -44,7 +44,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 def _build_bengali_proverb_pool(target_size=1000):
     """Build a deterministic pool of Bengali proverb-style motivation lines."""
     starters = [
@@ -85,9 +84,7 @@ def _build_bengali_proverb_pool(target_size=1000):
     rng.shuffle(lines)
     return lines[:target_size]
 
-
 BN_OTP_MOTIVATION_LINES = _build_bengali_proverb_pool(1000)
-
 
 def get_random_bn_otp_motivation():
     if not BN_OTP_MOTIVATION_LINES:
@@ -102,49 +99,43 @@ except ImportError:
     HAS_CLOUDSCRAPER = False
 
 # Bot Configuration (from environment variables only - no default value)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable is required. Please set it in Render environment variables.")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
-OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))  # Channel ID for forwarding OTP messages
 
 import hashlib
 import json
 import time
 import base64
+
+# Configuration
+BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
+WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
+API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
+API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbm5xdmZvYWpxc2ZkeXVsb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzE1MjcsImV4cCI6MjA3OTc0NzUyN30.dFniV0odaT-7bjs5iQVFQ-N23oqTGMAgQKjswhaHSP4")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
+OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))
+SERVICE_APP_IDS = {
+    "whatsapp": "WhatsApp",
+    "facebook": "Facebook",
+    "telegram": "Telegram",
+}
 try:
     from Cryptodome.Cipher import AES
-    # logger.info("Using Cryptodome.Cipher")
 except ImportError:
     try:
         from Crypto.Cipher import AES
-        # logger.info("Using Crypto.Cipher")
-    except ImportError as e:
-        # logger.error(f"Failed to import AES from both Cryptodome and Crypto: {e}")
+    except ImportError:
         AES = None
 
-# New API Configuration
-BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
-WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
 
-def b62_encode(data):
-    base = len(WIRE_ALPHABET)
-    res = int.from_bytes(data, 'big')
-    if res == 0:
-        return WIRE_ALPHABET[0]
-    out = ""
-    while res > 0:
-        res, rem = divmod(res, base)
-        out = WIRE_ALPHABET[rem] + out
-    return out
-
-def b62_decode(data):
-    base = len(WIRE_ALPHABET)
-    res = 0
-    for char in data:
-        res = res * base + WIRE_ALPHABET.index(char)
-    byte_len = (res.bit_length() + 7) // 8
-    return res.to_bytes(byte_len, 'big')
+try:
+    from Cryptodome.Cipher import AES
+except ImportError:
+    try:
+        from Crypto.Cipher import AES
+    except ImportError:
+        AES = None
 
 class WireCodec:
     def __init__(self, sid="M0000000001"):
@@ -154,8 +145,7 @@ class WireCodec:
 
     def encrypt(self, payload_dict):
         if AES is None:
-            # Fallback or silent error? Better to raise with info
-            raise ImportError("Crypto library not found. Ensure pycryptodome or pycryptodomex is in requirements.txt and clear build cache on Render.")
+            raise ImportError("Crypto library not found.")
         plaintext = json.dumps(payload_dict, separators=(',', ':')).encode()
         nonce = hashlib.sha256(str(time.time()).encode()).digest()[:12]
         cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
@@ -176,35 +166,210 @@ class WireCodec:
         except Exception:
             return None
 
-API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
-API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
+class APIClient:
+    def __init__(self):
+        self.base_url = BASE_URL
+        try:
+            from curl_cffi import requests as curl_requests
+            self.session = curl_requests.Session(impersonate="chrome110")
+            self.use_curl = True
+        except ImportError:
+            self.session = requests.Session()
+            self.use_curl = False
+        
+        self.auth_token = None
+        self.email = API_EMAIL
+        self.password = API_PASSWORD
+        self.codec = WireCodec("M0000000001") 
+        self.browser_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "en-GB,en;q=0.9",
+            "Content-Type": "text/plain; charset=utf-8",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        self._ranges_cache = {}
+        self._lock = threading.Lock()
 
-# Supabase Configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbm5xdmZvYWpxc2ZkeXVsb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzE1MjcsImV4cCI6MjA3OTc0NzUyN30.dFniV0odaT-7bjs5iQVFQ-N23oqTGMAgQKjswhaHSP4")
+    def _get_sid_from_jwt(self, token):
+        try:
+            parts = token.split('.')
+            if len(parts) < 2: return None
+            payload_b64 = parts[1]
+            payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
+            data = json.loads(base64.b64decode(payload_b64).decode())
+            return data.get('sid')
+        except Exception:
+            return None
 
-# Supabase Database setup
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    def _api_call(self, method, endpoint, payload=None, retry_login=True):
+        if not self.auth_token and endpoint != "/@auth/login":
+            if not self.login(): return None
+        headers = self.browser_headers.copy()
+        if self.auth_token: headers["mauth"] = self.auth_token
+        data = self.codec.encrypt(payload) if payload is not None else None
+        try:
+            url = f"{self.base_url}{endpoint}"
+            if method.upper() == "POST":
+                resp = self.session.post(url, data=data, headers=headers, timeout=15)
+            else:
+                resp = self.session.get(url, headers=headers, timeout=15)
+            if resp.status_code in [401, 403]:
+                if retry_login:
+                    self.auth_token = None
+                    if self.login(): return self._api_call(method, endpoint, payload, False)
+                return None
+            if resp.status_code == 200:
+                dec = self.codec.decrypt(resp.text)
+                if dec: return dec
+                try: return resp.json()
+                except: return None
+            return None
+        except Exception as e:
+            logger.error(f"API Error {endpoint}: {e}")
+            return None
 
-# Service → appId mapping (known primary services)
-SERVICE_APP_IDS = {
-    "whatsapp": "WhatsApp",
-    "facebook": "Facebook",
-    "telegram": "Telegram",
-}
+    def login(self):
+        with self._lock:
+            try:
+                self.codec = WireCodec("M0000000001")
+                payload = {"email": self.email, "password": self.password, "remember": True}
+                data = self._api_call("POST", "/@auth/login", payload, False)
+                if data and data.get('meta', {}).get('code') == 200:
+                    token = data['data'].get('session_token')
+                    if token:
+                        self.auth_token = token
+                        sid = self._get_sid_from_jwt(token)
+                        if sid: self.codec = WireCodec(sid)
+                        logger.info(f"Login successful. SID: {sid}")
+                        return True
+                return False
+            except Exception as e:
+                logger.error(f"Login exception: {e}")
+                return False
 
-def init_database():
-    """Initialize Supabase database (tables should be created manually via SQL)"""
-    try:
-        # Test connection
-        result = supabase.table('users').select('user_id').limit(1).execute()
-        logger.info("✅ Supabase connection successful")
-    except Exception as e:
-        logger.warning(f"⚠️ Supabase connection test failed (tables may not exist yet): {e}")
+    def _normalize_range_token(self, value):
+        if value is None: return ""
+        return re.sub(r'[^0-9Xx]', '', str(value)).upper()
 
-# Initialize database on import
-init_database()
+    def get_console_logs(self):
+        try:
+            data = self._api_call("GET", "/@dashboard/dialer/console/info")
+            if data and 'data' in data: return data['data'].get('logs', [])
+            return []
+        except Exception: return []
 
+    def get_number(self, range_id):
+        try:
+            normalized = self._normalize_range_token(range_id)
+            if not normalized: return None
+            range_for_api = normalized if 'X' in normalized else f"{normalized}XXX"
+            data = self._api_call("POST", "/@dashboard/dialer/getnum/request", {"range": range_for_api})
+            if (not data or data.get('meta', {}).get('code') != 200) and normalized.isdigit():
+                data = self._api_call("POST", "/@dashboard/dialer/getnum/request", {"range_id": normalized})
+            if data and data.get('meta', {}).get('code') == 200:
+                number = data['data'].get('number') or data['data'].get('copy')
+                if number:
+                    return {'number': number, 'range': range_for_api, 'country_code': data['data'].get('country_code', ''), 'status': 'pending'}
+            return None
+        except Exception: return None
+
+    def check_otp_batch(self, numbers):
+        try:
+            data = self._api_call("GET", "/@dashboard/dialer/getnum/list?page=1")
+            result = {}
+            if data and 'data' in data and data['data']:
+                numbers_list = data['data'].get('numbers', [])
+                if numbers_list:
+                    target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}
+                    target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
+                    for num_obj in numbers_list:
+                        api_num = num_obj.get('number', '').replace('+', '').strip()
+                        msg = num_obj.get('message') or num_obj.get('otp', '')
+                        if msg: num_obj['sms_content'] = msg
+                        target_num = target_map_exact.get(api_num) or target_map_last9.get(api_num[-9:])
+                        if target_num: result[target_num] = num_obj
+            return result
+        except Exception: return {}
+
+    def get_ranges(self, app_id, max_retries=3, keyword=""):
+        try:
+            app_id_norm = str(app_id or "").strip().lower()
+            logs = self.get_console_logs()
+            all_ranges = self._build_ranges_from_console_logs(logs)
+            primary_services = {"whatsapp", "facebook", "telegram"}
+            filtered = []
+            for r in all_ranges:
+                service_norm = normalize_service_name(r.get('service'))
+                if app_id_norm in primary_services:
+                    if service_norm == app_id_norm: filtered.append(r)
+                elif app_id_norm == "others":
+                    if service_norm not in primary_services: filtered.append(r)
+                else:
+                    if app_id_norm in str(r.get('service')).lower(): filtered.append(r)
+            return filtered
+        except Exception: return []
+
+    def _build_ranges_from_console_logs(self, logs):
+        if not isinstance(logs, list) or not logs: return []
+        range_map = {}
+        for idx, item in enumerate(logs):
+            app_name_raw = str(item.get('app_name') or "").strip()
+            if not app_name_raw: continue
+            if app_name_raw in ["******", "alymscintl"]: app_name_raw = "WhatsApp"
+            service_key = normalize_service_name(app_name_raw)
+            range_token = self._normalize_range_token(item.get('range') or item.get('number'))
+            if not range_token or len(re.sub(r'[^0-9]', '', range_token)) < 4: continue
+            range_for_api = range_token if 'X' in range_token else f"{range_token}XXX"
+            country = str(item.get('country') or "Unknown")
+            obj = {
+                'id': range_for_api, 'range_id': range_for_api, 'name': range_for_api,
+                'pattern': range_for_api, 'country': country, 'service': app_name_raw, 
+                'operator': str(item.get('carrier') or "Unknown").strip(),
+                'datetime': f"{idx} mins ago"
+            }
+            map_key = (service_key, range_for_api)
+            if map_key not in range_map: range_map[map_key] = obj
+        return list(range_map.values())
+
+    def get_applications(self, max_retries=3):
+        return [{'id': 'whatsapp', 'name': 'WhatsApp'}, {'id': 'facebook', 'name': 'Facebook'}, {'id': 'telegram', 'name': 'Telegram'}, {'id': 'others', 'name': 'Others'}]
+
+    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
+        numbers = []
+        total_attempts = 0
+        max_total_attempts = count * 10
+        logger.info(f"Requesting {count} numbers from range {range_id}")
+        while len(numbers) < count and total_attempts < max_total_attempts:
+            total_attempts += 1
+            number_data = self.get_number(range_name or range_id)
+            if number_data:
+                num_val = number_data.get('number')
+                if num_val and not is_number_used(num_val):
+                    numbers.append(number_data)
+                    logger.info(f"Added fresh number: {num_val}")
+                else:
+                    logger.info(f"Skipping recently used number: {num_val}")
+            else:
+                logger.warning(f"get_number returned None (attempt {total_attempts})")
+            time.sleep(1)
+        return numbers
+
+global_api_client = None
+api_lock = threading.Lock()
+
+def get_global_api_client():
+    global global_api_client
+    if global_api_client is None:
+        global_api_client = APIClient()
+        global_api_client.login()
+    return global_api_client
+
+def refresh_global_token():
+    global global_api_client
+    with api_lock:
+        if global_api_client:
+            global_api_client.login()
 class BestEffortLock:
     """Non-blocking-ish lock to avoid freezing the event loop under contention."""
     def __init__(self, timeout=0.05):
@@ -243,51 +408,6 @@ CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "
 # Console stream -> OTP channel forwarding is limited to these services for now.
 CONSOLE_FORWARD_SERVICE_KEYS = {"whatsapp", "telegram"}
 
-# Global API client - single session for all users
-global_api_client = None
-api_lock = threading.Lock()
-API_IO_WORKERS = int(os.getenv("API_IO_WORKERS", "120"))
-UPDATE_CONCURRENCY = int(os.getenv("UPDATE_CONCURRENCY", "128"))
-api_io_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=max(16, API_IO_WORKERS),
-    thread_name_prefix="api-io"
-)
-
-async def run_api_call(func, *args, **kwargs):
-    """Run blocking API call in thread pool to keep event loop responsive."""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(api_io_executor, partial(func, *args, **kwargs))
-
-def get_global_api_client():
-    """Get or create global API client (single session for all users)"""
-    global global_api_client
-    if global_api_client is None:
-        global_api_client = APIClient()
-        if not global_api_client.login():
-            logger.error("Failed to login to API")
-    return global_api_client
-
-def refresh_global_token():
-    """Refresh global API token if expired"""
-    global global_api_client
-    with api_lock:
-        if global_api_client:
-            if not global_api_client.login():
-                logger.error("Failed to refresh API token")
-                # Try to create new client
-                global_api_client = APIClient()
-                global_api_client.login()
-        else:
-            get_global_api_client()
-
-# Helper for time parsing
-def parse_time_ago(time_str):
-    """Parse '7 mins ago', '1 hours ago' to minutes"""
-    if not time_str:
-        return 999999 # Treat missing as very old
-        
-    try:
-        parts = str(time_str).lower().split()
         if len(parts) >= 2:
             val = int(parts[0])
             unit = parts[1]
@@ -396,7 +516,6 @@ def get_all_users():
         logger.error(f"Error getting all users: {e}")
         return []
 
-
 def get_approved_user_ids():
     """Get list of approved user_ids."""
     try:
@@ -450,7 +569,6 @@ def get_user_session(user_id):
         logger.error(f"Error getting user session: {e}")
         return {'number_count': 2}  # Return default on error
 
-
 def add_used_number(number):
     """Add a number to the used_numbers table to prevent reuse for 24 hours."""
     try:
@@ -469,7 +587,6 @@ def add_used_number(number):
         logger.info(f"Number {normalized} added to used_numbers table.")
     except Exception as e:
         logger.error(f"Error adding used number {number}: {e}")
-
 
 def is_number_used(number):
     """Check if a number has been used (received OTP) within the last 24 hours."""
@@ -496,19 +613,16 @@ def is_number_used(number):
         logger.error(f"Error checking if number {number} is used: {e}")
         return False
 
-
 def get_bd_today_str():
     """Return today's date string in Asia/Dhaka timezone (YYYY-MM-DD)."""
     # Asia/Dhaka is UTC+6 and has no DST currently
     bd_now = datetime.now(timezone.utc) + timedelta(hours=6)
     return bd_now.date().isoformat()
 
-
 def get_bd_now():
     """Return current datetime in Asia/Dhaka timezone (UTC+6)."""
     # Using fixed offset to avoid extra deps (Asia/Dhaka has no DST currently)
     return datetime.now(timezone.utc) + timedelta(hours=6)
-
 
 def increment_otp_count(user_id):
     """Increment today's OTP count for a user (per Bangladesh time)."""
@@ -537,7 +651,6 @@ def increment_otp_count(user_id):
     except Exception as e:
         logger.error(f"Error incrementing OTP count for user {user_id}: {e}")
 
-
 def get_today_otp_count(user_id):
     """Get how many OTPs user received today (per Bangladesh time)."""
     try:
@@ -555,667 +668,9 @@ def get_today_otp_count(user_id):
         logger.error(f"Error getting OTP stats for user {user_id}: {e}")
         return 0
 
-
 def resolve_app_id(service_name, context):
     """Resolve app_id from known services or per-user custom services."""
     if service_name in SERVICE_APP_IDS:
-        return SERVICE_APP_IDS[service_name]
-    custom_services = context.user_data.get('custom_services', {}) if context else {}
-    return custom_services.get(service_name) or service_name
-
-# API Functions (from otp_tool.py)
-class APIClient:
-    def __init__(self):
-        self.base_url = BASE_URL
-        if HAS_CURL_CFFI:
-            self.session = curl_requests.Session(impersonate="chrome110")
-            self.use_curl = True
-        elif HAS_CLOUDSCRAPER:
-            self.session = cloudscraper.create_scraper()
-            self.use_curl = False
-        else:
-            self.session = requests.Session()
-            self.use_curl = False
-        
-        self.auth_token = None
-        self.email = API_EMAIL
-        self.password = API_PASSWORD
-        self.codec = WireCodec("M0000000001") # Fallback SID
-        
-        self.browser_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Language": "en-GB,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Content-Type": "text/plain; charset=utf-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty"
-        }
-        self._ranges_cache = {}
-        self._cache_duration = int(os.getenv("RANGES_CACHE_SECONDS", "30"))
-        self._lock = threading.Lock()
-
-    def _get_sid_from_jwt(self, token):
-        try:
-            parts = token.split('.')
-            if len(parts) < 2: return None
-            payload_b64 = parts[1]
-            payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
-            import base64
-            data = json.loads(base64.b64decode(payload_b64).decode())
-            return data.get('sid')
-        except Exception:
-            return None
-
-    def _api_call(self, method, endpoint, payload=None, retry_login=True):
-        if not self.auth_token and endpoint != "/@auth/login":
-            if not self.login(): return None
-        
-        headers = self.browser_headers.copy()
-        if self.auth_token:
-            headers["mauth"] = self.auth_token
-            
-        data = None
-        if payload is not None:
-            data = self.codec.encrypt(payload)
-            
-        try:
-            url = f"{self.base_url}{endpoint}"
-            if method.upper() == "POST":
-                resp = self.session.post(url, data=data, headers=headers, timeout=15)
-            else:
-                resp = self.session.get(url, headers=headers, timeout=15)
-                
-            if resp.status_code == 401 and retry_login:
-                if self.login():
-                    return self._api_call(method, endpoint, payload, retry_login=False)
-                return None
-                
-            if resp.status_code == 200:
-                dec = self.codec.decrypt(resp.text)
-                if dec: return dec
-                # Fallback for plain text or errors
-                try: return resp.json()
-                except: return None
-            return None
-        except Exception as e:
-            logger.error(f"API call error {endpoint}: {e}")
-            return None
-
-    def login(self):
-        with self._lock:
-            try:
-                self.codec = WireCodec("M0000000001") # Reset to fallback for login
-                payload = {"email": self.email, "password": self.password, "remember": True}
-                data = self._api_call("POST", "/@auth/login", payload, retry_login=False)
-                
-                if data and data.get('meta', {}).get('code') == 200:
-                    token = data['data'].get('session_token')
-                    if token:
-                        self.auth_token = token
-                        sid = self._get_sid_from_jwt(token)
-                        if sid:
-                            self.codec = WireCodec(sid)
-                        logger.info(f"Login successful. SID: {sid}")
-                        return True
-                logger.error(f"Login failed: {data}")
-                return False
-            except Exception as e:
-                logger.error(f"Login error: {e}")
-                return False
-
-    def _normalize_range_token(self, value):
-        """Normalize any range-like token to [0-9X] uppercase text."""
-        if value is None:
-            return ""
-        return re.sub(r'[^0-9Xx]', '', str(value)).upper()
-
-    def _normalize_country(self, raw_country, range_token="", number_token=""):
-        """Prefer explicit country; fallback to number/range based detection."""
-        country = str(raw_country or "").strip()
-        generic_labels = {"unknown", "other", "postpaid", "prepaid"}
-        if country and country.lower() not in generic_labels:
-            return country
-
-        detected = (
-            detect_country_from_range(range_token)
-            or detect_country_from_number(number_token)
-            or detect_country_from_range(number_token)
-        )
-        return detected or "Unknown"
-
-    def _build_ranges_from_console_logs(self, logs):
-        """
-        Build deduplicated range objects from console stream.
-        This replaces old /mdashboard/access scraping.
-        """
-        if not isinstance(logs, list) or not logs:
-            return []
-
-        primary_services = {"whatsapp", "facebook", "telegram"}
-        primary_labels = {
-        "whatsapp": "WhatsApp",
-        "facebook": "Facebook",
-        "telegram": "Telegram",
-        }
-
-        range_map = {}
-
-        for idx, item in enumerate(logs):
-            if not isinstance(item, dict):
-                continue
-
-            app_name_raw = str(item.get('app_name') or "").strip()
-            if not app_name_raw:
-                continue
-
-            service_key = normalize_service_name(app_name_raw)
-            service_label = primary_labels.get(service_key, app_name_raw)
-
-            raw_range = self._normalize_range_token(item.get('range'))
-            raw_number = self._normalize_range_token(item.get('number'))
-
-            range_token = raw_range or raw_number
-            if not range_token:
-                continue
-
-            # getnum/number usually accepts pattern form; force XXX suffix when missing.
-            range_for_api = range_token if 'X' in range_token else f"{range_token}XXX"
-
-            # Ignore clearly invalid short prefixes.
-            if len(re.sub(r'[^0-9]', '', range_for_api)) < 4:
-                continue
-
-            country = self._normalize_country(item.get('country'), range_for_api, raw_number)
-            carrier = str(item.get('carrier') or "Unknown").strip() or "Unknown"
-            log_id = item.get('id')
-
-            # Existing UI sort expects "X mins ago" style text.
-            datetime_label = f"{idx} mins ago"
-
-            obj = {
-                'id': range_for_api,
-                'numerical_id': str(log_id) if log_id is not None else "",
-                'range_id': range_for_api,
-                'name': range_for_api,
-                'pattern': range_for_api,
-                'country': country,
-                'cantryName': country,
-                'operator': carrier,
-                'service': service_label,
-                'datetime': datetime_label,
-            }
-
-            # Keep newest occurrence per (service, range).
-            map_key = (service_label.lower(), range_for_api)
-            if map_key not in range_map:
-                range_map[map_key] = obj
-            else:
-                existing = range_map[map_key]
-                if existing.get('country') in {"Unknown", "Other", "postpaid", "prepaid"} and country not in {"Unknown", "Other", "postpaid", "prepaid"}:
-                    range_map[map_key] = obj
-
-        # Keep deterministic ordering by freshness first.
-        ranges = list(range_map.values())
-        ranges.sort(key=lambda x: parse_time_ago(x.get('datetime', '')))
-
-        # Drop exact duplicate range IDs to keep UI cleaner.
-        seen_ids = set()
-        unique_ranges = []
-        for r in ranges:
-            rid = str(r.get('range_id') or r.get('name') or "")
-            sid = str(r.get('service') or "").lower()
-            dedupe_key = (sid, rid)
-            if dedupe_key in seen_ids:
-                continue
-            seen_ids.add(dedupe_key)
-            unique_ranges.append(r)
-
-        # Filter out blank service rows from "others" view stability perspective.
-        return [r for r in unique_ranges if str(r.get('service') or "").strip()]
-
-    def get_ranges(self, app_id, max_retries=3, keyword=""):
-        """Get ranges using new getnum-era console stream metadata."""
-        try:
-            if not self.auth_token:
-                if not self.login():
-                    return []
-
-            app_id_norm = str(app_id or "").strip().lower()
-            cache_key = f"ranges_console::{app_id_norm}"
-            now_ts = time.time()
-
-            if cache_key in self._ranges_cache:
-                entry = self._ranges_cache[cache_key]
-                if now_ts - entry['timestamp'] < self._cache_duration:
-                    return entry['data']
-
-            logs = self.get_console_logs()
-            all_ranges = self._build_ranges_from_console_logs(logs)
-            if not all_ranges:
-                logger.warning(f"No ranges available from console source for app_id={app_id}")
-                self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': []}
-                return []
-
-            primary_services = {"whatsapp", "facebook", "telegram"}
-            filtered = []
-
-            for r in all_ranges:
-                service_label = str(r.get('service') or "").strip()
-                if not service_label:
-                    continue
-
-                service_norm = normalize_service_name(service_label)
-                service_lower = service_label.lower()
-
-                if app_id_norm in primary_services:
-                    if service_norm == app_id_norm:
-                        filtered.append(r)
-                elif app_id_norm == "others":
-                    if service_norm not in primary_services:
-                        filtered.append(r)
-                else:
-                    if app_id_norm in service_lower or service_lower in app_id_norm:
-                        filtered.append(r)
-
-            self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': filtered}
-            logger.info(f"Found {len(filtered)} ranges for {app_id} from new console source")
-            return filtered
-
-        except Exception as e:
-            logger.error(f"Error getting ranges: {e}")
-            return []
-
-    def get_applications(self, max_retries=3):
-        """Get available applications - Mapped from SERVICE_APP_IDS for compatibility"""
-        # The new API doesn't list "all apps" easily, we search by name.
-        # But for 'Others' menu, we might want to return some defaults or nothing.
-        # Current bot logic allows 'Others' to fetch dynamic list.
-        # For now, we return the primary ones + maybe some popular ones if we want?
-        # Or simply return empty list for others if we don't support dynamic discovery yet.
-        # Let's return the primary ones to ensure they appear if needed.
-        apps = []
-        for name, app_id in SERVICE_APP_IDS.items():
-            apps.append({'id': app_id, 'name': app_id})
-        return apps
-    
-    def get_number(self, range_id):
-        """Request a number from a range"""
-        try:
-            if not self.auth_token:
-                if not self.login():
-                    return None
-
-            normalized = self._normalize_range_token(range_id)
-            if not normalized:
-                return None
-
-            candidates = []
-            if 'X' in normalized:
-                candidates.append(normalized)
-            else:
-                candidates.append(f"{normalized}XXX")
-                candidates.append(normalized)
-
-            # Keep order and remove duplicates.
-            dedup_candidates = []
-            seen = set()
-            for c in candidates:
-                if c not in seen:
-                    seen.add(c)
-                    dedup_candidates.append(c)
-
-            for candidate_range in dedup_candidates:
-                headers = {
-                    **self.browser_headers,
-                    "mauthtoken": self.auth_token,
-                    "Referer": f"{self.base_url}/mdashboard/getnum?range={candidate_range}"
-                }
-
-                payload = {
-                    "range": candidate_range,
-                    "is_national": False,
-                    "remove_plus": False
-                }
-
-                resp = self.session.post(
-                    f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
-                    json=payload,
-                    headers=headers,
-                    timeout=15
-                )
-
-                if resp.status_code in [401, 403]:
-                    self.auth_token = None
-                    if self.login():
-                        headers["mauthtoken"] = self.auth_token
-                        resp = self.session.post(
-                            f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
-                            json=payload,
-                            headers=headers,
-                            timeout=15
-                        )
-
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if 'data' in data:
-                        number_data = data['data']
-                        if isinstance(number_data, dict):
-                            if 'number' in number_data:
-                                return number_data
-                            if 'copy' in number_data:
-                                number_data['number'] = number_data['copy']
-                                return number_data
-
-            logger.warning(f"get_number failed for range={range_id}")
-            return None
-        except Exception as e:
-            logger.error(f"Error getting number: {e}")
-            return None
-    
-    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
-        """Request multiple numbers from a range - with filtering and dual range_id/range_name logic."""
-        numbers = []
-        total_attempts = 0
-        max_total_attempts = count * 10  # Safety limit
-        
-        logger.info(f"Requesting {count} numbers from range {range_id} (name: {range_name})")
-        
-        while len(numbers) < count and total_attempts < max_total_attempts:
-            total_attempts += 1
-            try:
-                # Try range_name first (this is the pattern like "9965579XXX")
-                number_data = None
-                if range_name:
-                    logger.info(f"Attempting with range_name (pattern): {range_name}")
-                    number_data = self.get_number(range_name)
-                
-                # Fallback to range_id only if range_name fails and they're different
-                if not number_data and range_id != range_name:
-                    logger.info(f"Fallback: attempting with range_id: {range_id}")
-                    number_data = self.get_number(range_id)
-                    
-                if number_data:
-                    num_val = number_data.get('number') or number_data.get('num')
-                    if num_val:
-                        # Check if number was used in last 24 hours
-                        if not is_number_used(num_val):
-                            numbers.append(number_data)
-                            logger.info(f"Added fresh number: {num_val}")
-                        else:
-                            logger.info(f"Skipping recently used number: {num_val}")
-                    else:
-                        logger.warning(f"get_number returned data without number field: {number_data}")
-                else:
-                    # No more numbers available from API or temporary error
-                    logger.warning(f"get_number returned None for range {range_id} (attempt {total_attempts})")
-                    # If we already have some numbers, maybe return what we have after a few more tries
-                    if len(numbers) > 0 and total_attempts > count + 2:
-                        break
-                    time.sleep(1)
-            except Exception as e:
-                logger.error(f"Error in get_multiple_numbers loop: {e}")
-                time.sleep(1)
-        
-        if not numbers:
-            logger.error(f"❌ Failed to get any valid numbers from range {range_id} after {total_attempts} attempts.")
-        else:
-            logger.info(f"✅ Successfully obtained {len(numbers)}/{count} numbers for range {range_id}.")
-            
-        return numbers
-    
-    def check_otp(self, number):
-        """Check for OTP on a number - using NEW API /mapi/v1/mdashboard/getnum/info"""
-        try:
-            if not self.auth_token:
-                if not self.login():
-                    return None
-            
-            # Date format YYYY-MM-DD for new API
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            
-            headers = {
-                **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/getnum"
-            }
-            
-            # New API: GET /mapi/v1/mdashboard/getnum/info?date=...
-            resp = self.session.get(
-                f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                headers=headers,
-                timeout=8
-            )
-            
-            if resp.status_code == 401:
-                logger.info("Token expired in check_otp, refreshing...")
-                if self.login():
-                    headers["mauthtoken"] = self.auth_token
-                    resp = self.session.get(
-                        f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                        headers=headers,
-                        timeout=8
-                    )
-                else:
-                    return None
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                # Expected: {"data": {"numbers": [{"number": "...", "message": "..."}, ...]}}
-                if 'data' in data and data['data']:
-                    numbers_list = data['data'].get('numbers', [])
-                if numbers_list:
-                        target_normalized = number.replace('+', '').replace(' ', '').strip()
-                        
-                        for num_obj in numbers_list:
-                            api_num = num_obj.get('number', '').replace('+', '').strip()
-                            # Check match & last 9 digits
-                            if api_num == target_normalized or (len(api_num) >= 9 and len(target_normalized) >= 9 and api_num[-9:] == target_normalized[-9:]):
-                                # Found the number.
-                                # New API returns full message in 'otp' and 'message' fields.
-                                # We map 'message' to 'sms_content' and clear 'otp' to let monitor_otp extract the code.
-                                msg = num_obj.get('message') or num_obj.get('otp', '')
-                                if msg:
-                                    num_obj['sms_content'] = msg
-                                    num_obj['otp'] = None  # Clear to force extraction
-                                    return num_obj
-                                else:
-                                    return num_obj 
-            return None
-        except Exception as e:
-            logger.error(f"Error checking OTP: {e}")
-            return None
-    
-    def check_otp_batch(self, numbers):
-        try:
-            data = self._api_call("GET", "/@dashboard/dialer/getnum/list?page=1")
-            result = {}
-            if data and "data" in data and data["data"]:
-                numbers_list = data["data"].get("numbers", [])
-                if numbers_list:
-                        # Create map of API numbers to their data
-                        # We also handle last 9 digits and exact matches
-                        
-                        target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}
-                        target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
-                        
-                        for num_obj in numbers_list:
-                            api_num = num_obj.get('number', '').replace('+', '').strip()
-                            
-                            # Prepare object logic (same as check_otp)
-                            msg = num_obj.get('message') or num_obj.get('otp', '')
-                            if msg:
-                                num_obj['sms_content'] = msg
-                                num_obj['otp'] = None # Forces extraction in monitor_otp
-
-                            # Check match
-                            if api_num in target_map_exact:
-                                origin = target_map_exact[api_num]
-                                result[origin] = num_obj
-                            elif len(api_num) >= 9 and api_num[-9:] in target_map_last9:
-                                origin = target_map_last9[api_num[-9:]]
-                                result[origin] = num_obj
-
-            return result
-        except Exception as e:
-            logger.error(f"Error checking OTP batch: {e}")
-            return {}
-
-    def get_console_logs(self):
-        try:
-            data = self._api_call("GET", "/@dashboard/dialer/console/info")
-            if data and "data" in data:
-                return data["data"].get("logs", [])
-            return []
-        except Exception as e:
-            logger.error(f"Error getting console logs: {e}")
-            return []
-
-# Global API client - single session for all users
-global_api_client = None
-api_lock = threading.Lock()
-
-def get_global_api_client():
-    """Get or create global API client (single session for all users)"""
-    global global_api_client
-    if global_api_client is None:
-        global_api_client = APIClient()
-        # Try to login, but don't fail if it doesn't work - will retry on first API call
-        if not global_api_client.login():
-            logger.warning("Initial login failed, will retry on first API call")
-    return global_api_client
-
-def refresh_global_token():
-    """Refresh global API token if expired"""
-    global global_api_client
-    with api_lock:
-        if global_api_client:
-            if not global_api_client.login():
-                logger.error("Failed to refresh API token")
-                # Try to create new client
-                global_api_client = APIClient()
-                global_api_client.login()
-        else:
-            get_global_api_client()
-
-# Comprehensive Country calling codes mapping (199+ countries)
-COUNTRY_CODES = {
-    # 3-digit codes (check first - most specific)
-    '264': 'Namibia', '265': 'Malawi', '266': 'Lesotho', '267': 'Botswana',
-    '268': 'Swaziland', '269': 'Comoros', '290': 'Saint Helena', '291': 'Eritrea',
-    '297': 'Aruba', '298': 'Faroe Islands', '299': 'Greenland', '350': 'Gibraltar',
-    '351': 'Portugal', '352': 'Luxembourg', '353': 'Ireland', '354': 'Iceland',
-    '355': 'Albania', '356': 'Malta', '357': 'Cyprus', '358': 'Finland',
-    '359': 'Bulgaria', '370': 'Lithuania', '371': 'Latvia', '372': 'Estonia',
-    '373': 'Moldova', '374': 'Armenia', '375': 'Belarus', '376': 'Andorra',
-    '377': 'Monaco', '378': 'San Marino', '380': 'Ukraine', '381': 'Serbia',
-    '382': 'Montenegro', '383': 'Kosovo', '385': 'Croatia', '386': 'Slovenia',
-    '387': 'Bosnia', '389': 'Macedonia', '420': 'Czech Republic', '421': 'Slovakia',
-    '423': 'Liechtenstein', '500': 'Falkland Islands', '501': 'Belize', '502': 'Guatemala',
-    '503': 'El Salvador', '504': 'Honduras', '505': 'Nicaragua', '506': 'Costa Rica',
-    '507': 'Panama', '508': 'Saint Pierre', '509': 'Haiti', '590': 'Guadeloupe',
-    '591': 'Bolivia', '592': 'Guyana', '593': 'Ecuador', '594': 'French Guiana',
-    '595': 'Paraguay', '596': 'Martinique', '597': 'Suriname', '598': 'Uruguay',
-    '599': 'Netherlands Antilles', '670': 'East Timor', '672': 'Antarctica', '673': 'Brunei',
-    '674': 'Nauru', '675': 'Papua New Guinea', '676': 'Tonga', '677': 'Solomon Islands',
-    '678': 'Vanuatu', '679': 'Fiji', '680': 'Palau', '681': 'Wallis',
-    '682': 'Cook Islands', '683': 'Niue', '685': 'Samoa', '686': 'Kiribati',
-    '687': 'New Caledonia', '688': 'Tuvalu', '689': 'French Polynesia', '850': 'North Korea',
-    '852': 'Hong Kong', '853': 'Macau', '855': 'Cambodia', '856': 'Laos',
-    '880': 'Bangladesh', '886': 'Taiwan', '960': 'Maldives', '961': 'Lebanon',
-    '962': 'Jordan', '963': 'Syria', '964': 'Iraq', '965': 'Kuwait',
-    '966': 'Saudi Arabia', '967': 'Yemen', '968': 'Oman', '970': 'Palestine',
-    '971': 'UAE', '972': 'Israel', '973': 'Bahrain', '974': 'Qatar',
-    '975': 'Bhutan', '976': 'Mongolia', '977': 'Nepal', '992': 'Tajikistan',
-    '993': 'Turkmenistan', '994': 'Azerbaijan', '995': 'Georgia', '996': 'Kyrgyzstan',
-    '998': 'Uzbekistan', '240': 'Equatorial Guinea', '241': 'Gabon', '242': 'Congo',
-    '243': 'DR Congo', '244': 'Angola', '245': 'Guinea-Bissau', '246': 'Diego Garcia',
-    '247': 'Ascension', '248': 'Seychelles', '249': 'Sudan', '250': 'Rwanda',
-    '251': 'Ethiopia', '252': 'Somalia', '253': 'Djibouti', '254': 'Kenya',
-    '255': 'Tanzania', '256': 'Uganda', '257': 'Burundi', '258': 'Mozambique',
-    '260': 'Zambia', '261': 'Madagascar', '262': 'Reunion', '263': 'Zimbabwe',
-    '212': 'Morocco', '213': 'Algeria', '216': 'Tunisia', '218': 'Libya',
-    '220': 'Gambia', '221': 'Senegal', '222': 'Mauritania', '223': 'Mali',
-    '224': 'Guinea', '225': 'Ivory Coast', '226': 'Burkina Faso', '227': 'Niger',
-    '228': 'Togo', '229': 'Benin', '230': 'Mauritius', '231': 'Liberia',
-    '232': 'Sierra Leone', '233': 'Ghana',
-    # Missing African codes (common)
-    '234': 'Nigeria', '235': 'Chad', '236': 'Central African Republic', '237': 'Cameroon',
-    '238': 'Cape Verde', '239': 'Sao Tome and Principe',
-    # 2-digit codes
-    '20': 'Egypt', '27': 'South Africa', '30': 'Greece', '31': 'Netherlands',
-    '32': 'Belgium', '33': 'France', '34': 'Spain', '36': 'Hungary',
-    '39': 'Italy', '40': 'Romania', '41': 'Switzerland', '43': 'Austria',
-    '44': 'UK', '45': 'Denmark', '46': 'Sweden', '47': 'Norway',
-    '48': 'Poland', '49': 'Germany', '51': 'Peru', '52': 'Mexico',
-    '53': 'Cuba', '54': 'Argentina', '55': 'Brazil', '56': 'Chile',
-    '57': 'Colombia', '58': 'Venezuela', '60': 'Malaysia', '61': 'Australia',
-    '62': 'Indonesia', '63': 'Philippines', '64': 'New Zealand', '65': 'Singapore',
-    '66': 'Thailand', '81': 'Japan', '82': 'South Korea', '84': 'Vietnam',
-    '86': 'China', '90': 'Turkey', '91': 'India', '92': 'Pakistan',
-    '93': 'Afghanistan', '94': 'Sri Lanka', '95': 'Myanmar', '98': 'Iran',
-    # 1-digit codes (check last - least specific)
-    '1': 'USA', '7': 'Russia'
-}
-
-# Comprehensive Country flags mapping (all countries)
-COUNTRY_FLAGS = {
-    'Angola': '🇦🇴', 'Afghanistan': '🇦🇫', 'Albania': '🇦🇱', 'Algeria': '🇩🇿',
-    'Andorra': '🇦🇩', 'Argentina': '🇦🇷', 'Armenia': '🇦🇲', 'Aruba': '🇦🇼',
-    'Australia': '🇦🇺', 'Austria': '🇦🇹', 'Azerbaijan': '🇦🇿', 'Bahrain': '🇧🇭',
-    'Bangladesh': '🇧🇩', 'Belarus': '🇧🇾', 'Belgium': '🇧🇪', 'Belize': '🇧🇿',
-    'Benin': '🇧🇯', 'Bhutan': '🇧🇹', 'Bolivia': '🇧🇴', 'Bosnia': '🇧🇦',
-    'Botswana': '🇧🇼', 'Brazil': '🇧🇷', 'Brunei': '🇧🇳', 'Bulgaria': '🇧🇬',
-    'Burkina Faso': '🇧🇫', 'Burundi': '🇧🇮', 'Cameroon': '🇨🇲', 'Cambodia': '🇰🇭', 'Canada': '🇨🇦',
-    'Chile': '🇨🇱', 'China': '🇨🇳', 'Colombia': '🇨🇴', 'Congo': '🇨🇬',
-    'Costa Rica': '🇨🇷', 'Croatia': '🇭🇷', 'Cuba': '🇨🇺', 'Cyprus': '🇨🇾',
-    'Central African Republic': '🇨🇫', 'Chad': '🇹🇩', 'Nigeria': '🇳🇬', 'Cape Verde': '🇨🇻', 'Sao Tome and Principe': '🇸🇹',
-    'Czech Republic': '🇨🇿', 'DR Congo': '🇨🇩', 'Denmark': '🇩🇰', 'Djibouti': '🇩🇯',
-    'Ecuador': '🇪🇨', 'Egypt': '🇪🇬', 'El Salvador': '🇸🇻', 'Equatorial Guinea': '🇬🇶',
-    'Eritrea': '🇪🇷', 'Estonia': '🇪🇪', 'Ethiopia': '🇪🇹', 'Fiji': '🇫🇯',
-    'Finland': '🇫🇮', 'France': '🇫🇷', 'French Guiana': '🇬🇫', 'Gabon': '🇬🇦',
-    'Gambia': '🇬🇲', 'Georgia': '🇬🇪', 'Germany': '🇩🇪', 'Ghana': '🇬🇭',
-    'Gibraltar': '🇬🇮', 'Greece': '🇬🇷', 'Greenland': '🇬🇱', 'Guadeloupe': '🇬🇵',
-    'Guatemala': '🇬🇹', 'Guinea': '🇬🇳', 'Guinea-Bissau': '🇬🇼', 'Guyana': '🇬🇾',
-    'Haiti': '🇭🇹', 'Honduras': '🇭🇳', 'Hong Kong': '🇭🇰', 'Hungary': '🇭🇺',
-    'Iceland': '🇮🇸', 'India': '🇮🇳', 'Indonesia': '🇮🇩', 'Iran': '🇮🇷',
-    'Iraq': '🇮🇶', 'Ireland': '🇮🇪', 'Israel': '🇮🇱', 'Italy': '🇮🇹',
-    'Ivory Coast': '🇨🇮', 'Japan': '🇯🇵', 'Jordan': '🇯🇴', 'Kenya': '🇰🇪',
-    'Kiribati': '🇰🇮', 'Kosovo': '🇽🇰', 'Kuwait': '🇰🇼', 'Kyrgyzstan': '🇰🇬',
-    'Laos': '🇱🇦', 'Latvia': '🇱🇻', 'Lebanon': '🇱🇧', 'Lesotho': '🇱🇸',
-    'Liberia': '🇱🇷', 'Libya': '🇱🇾', 'Liechtenstein': '🇱🇮', 'Lithuania': '🇱🇹',
-    'Luxembourg': '🇱🇺', 'Macau': '🇲🇴', 'Macedonia': '🇲🇰', 'Madagascar': '🇲🇬',
-    'Malawi': '🇲🇼', 'Malaysia': '🇲🇾', 'Maldives': '🇲🇻', 'Mali': '🇲🇱',
-    'Malta': '🇲🇹', 'Martinique': '🇲🇶', 'Mauritania': '🇲🇷', 'Mauritius': '🇲🇺',
-    'Mexico': '🇲🇽', 'Moldova': '🇲🇩', 'Monaco': '🇲🇨', 'Mongolia': '🇲🇳',
-    'Montenegro': '🇲🇪', 'Morocco': '🇲🇦', 'Mozambique': '🇲🇿', 'Myanmar': '🇲🇲',
-    'Namibia': '🇳🇦', 'Nauru': '🇳🇷', 'Nepal': '🇳🇵', 'Netherlands': '🇳🇱',
-    'New Caledonia': '🇳🇨', 'New Zealand': '🇳🇿', 'Nicaragua': '🇳🇮', 'Niger': '🇳🇪',
-    'Nigeria': '🇳🇬', 'North Korea': '🇰🇵', 'Norway': '🇳🇴', 'Oman': '🇴🇲',
-    'Pakistan': '🇵🇰', 'Palau': '🇵🇼', 'Palestine': '🇵🇸', 'Panama': '🇵🇦',
-    'Papua New Guinea': '🇵🇬', 'Paraguay': '🇵🇾', 'Peru': '🇵🇪', 'Philippines': '🇵🇭',
-    'Poland': '🇵🇱', 'Portugal': '🇵🇹', 'Qatar': '🇶🇦', 'Reunion': '🇷🇪',
-    'Romania': '🇷🇴', 'Russia': '🇷🇺', 'Rwanda': '🇷🇼', 'Saudi Arabia': '🇸🇦',
-    'Senegal': '🇸🇳', 'Serbia': '🇷🇸', 'Seychelles': '🇸🇨', 'Sierra Leone': '🇸🇱',
-    'Singapore': '🇸🇬', 'Slovakia': '🇸🇰', 'Slovenia': '🇸🇮', 'Solomon Islands': '🇸🇧',
-    'Somalia': '🇸🇴', 'South Africa': '🇿🇦', 'South Korea': '🇰🇷', 'Spain': '🇪🇸',
-    'Sri Lanka': '🇱🇰', 'Sudan': '🇸🇩', 'Suriname': '🇸🇷', 'Swaziland': '🇸🇿',
-    'Sweden': '🇸🇪', 'Switzerland': '🇨🇭', 'Syria': '🇸🇾', 'Taiwan': '🇹🇼',
-    'Tajikistan': '🇹🇯', 'Tanzania': '🇹🇿', 'Thailand': '🇹🇭', 'Togo': '🇹🇬',
-    'Tonga': '🇹🇴', 'Tunisia': '🇹🇳', 'Turkey': '🇹🇷', 'Turkmenistan': '🇹🇲',
-    'Tuvalu': '🇹🇻', 'UAE': '🇦🇪', 'Uganda': '🇺🇬', 'UK': '🇬🇧',
-    'Ukraine': '🇺🇦', 'Uruguay': '🇺🇾', 'USA': '🇺🇸', 'Uzbekistan': '🇺🇿',
-    'Vanuatu': '🇻🇺', 'Venezuela': '🇻🇪', 'Vietnam': '🇻🇳', 'Yemen': '🇾🇪',
-    'Zambia': '🇿🇲', 'Zimbabwe': '🇿🇼', 'Comoros': '🇰🇲', 'East Timor': '🇹🇱',
-    'Falkland Islands': '🇫🇰', 'Faroe Islands': '🇫🇴', 'French Polynesia': '🇵🇫',
-    'Guinea-Bissau': '🇬🇼', 'Saint Helena': '🇸🇭', 'Saint Pierre': '🇵🇲',
-    'Wallis': '🇼🇫', 'Cook Islands': '🇨🇰', 'Niue': '🇳🇺', 'Samoa': '🇼🇸',
-    'Antarctica': '🇦🇶', 'Netherlands Antilles': '🇦🇼', 'Diego Garcia': '🇮🇴',
-    'Ascension': '🇦🇨'
-}
-
 def detect_country_from_range(range_name):
     """Detect country from range name (e.g., 24491541XXXX -> Angola)"""
     if not range_name:
@@ -1656,7 +1111,6 @@ def _strip_accents(text):
         if not unicodedata.combining(ch)
     )
 
-
 def _detect_language_by_script(text):
     """Fast script-based detection for non-latin SMS bodies."""
     counts = {
@@ -1719,7 +1173,6 @@ def _detect_language_by_script(text):
         'cjk': 'Chinese',
     }
     return mapping.get(script)
-
 
 def detect_language_from_sms(sms_content):
     """Detect SMS language with script + weighted OTP phrase matching."""
@@ -1873,7 +1326,6 @@ def detect_language_from_sms(sms_content):
             return 'French'
 
     return best_language
-
 
 def extract_masked_otp_from_sms(sms_content):
     """Extract masked OTP token (e.g., ****** or ***-***)."""
