@@ -678,9 +678,9 @@ class APIClient:
 
         primary_services = {"whatsapp", "facebook", "telegram"}
         primary_labels = {
-            "whatsapp": "WhatsApp",
-            "facebook": "Facebook",
-            "telegram": "Telegram",
+        "whatsapp": "WhatsApp",
+        "facebook": "Facebook",
+        "telegram": "Telegram",
         }
 
         range_map = {}
@@ -1981,9 +1981,9 @@ def build_console_channel_message(log_item):
     country_flag = get_country_flag(country)
     country_code = get_country_code(country)
     service_display = {
-          "whatsapp": "WhatsApp",
-          "facebook": "Facebook",
-          "telegram": "Telegram",
+        "whatsapp": "WhatsApp",
+        "facebook": "Facebook",
+        "telegram": "Telegram",
         "******": "WhatsApp"
     }.get(service_key, service_raw)
     if service_raw == "******": service_display = "WhatsApp"
@@ -4320,9 +4320,9 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             sms_content = str(log_item.get('sms') or '')
             service = str(log_item.get('app_name') or '')
-              if service == "******":
-                  service = "WhatsApp"
-              service_key = normalize_service_name(service)
+            if service == "******":
+                service = "WhatsApp"
+            service_key = normalize_service_name(service)
 
             # Forward only allowed service groups (fixed for now).
             if CONSOLE_FORWARD_SERVICE_KEYS and service_key not in CONSOLE_FORWARD_SERVICE_KEYS:
