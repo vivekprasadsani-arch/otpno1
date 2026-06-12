@@ -109,9 +109,62 @@ if not BOT_TOKEN:
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
 OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))  # Channel ID for forwarding OTP messages
 
-# API Configuration (from otp_tool.py)
-BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness/@public/api"
-API_KEY = os.getenv("API_KEY")
+import hashlib
+import json
+import time
+import base64
+from Crypto.Cipher import AES
+
+# New API Configuration
+BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
+WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
+
+def b62_encode(data):
+    base = len(WIRE_ALPHABET)
+    res = int.from_bytes(data, 'big')
+    if res == 0:
+        return WIRE_ALPHABET[0]
+    out = ""
+    while res > 0:
+        res, rem = divmod(res, base)
+        out = WIRE_ALPHABET[rem] + out
+    return out
+
+def b62_decode(data):
+    base = len(WIRE_ALPHABET)
+    res = 0
+    for char in data:
+        res = res * base + WIRE_ALPHABET.index(char)
+    byte_len = (res.bit_length() + 7) // 8
+    return res.to_bytes(byte_len, 'big')
+
+class WireCodec:
+    def __init__(self, sid="M0000000001"):
+        self.sid = sid
+        prefix = "AES-GCM_KEY_"
+        self.key = hashlib.sha256((prefix + self.sid).encode()).digest()
+
+    def encrypt(self, payload_dict):
+        plaintext = json.dumps(payload_dict, separators=(',', ':')).encode()
+        nonce = hashlib.sha256(str(time.time()).encode()).digest()[:12]
+        cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
+        ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+        return b62_encode(nonce + ciphertext + tag)
+
+    def decrypt(self, enc_data):
+        if not enc_data: return None
+        try:
+            decoded = b62_decode(enc_data)
+            if len(decoded) < 28: return None
+            nonce = decoded[:12]
+            ciphertext = decoded[12:-16]
+            tag = decoded[-16:]
+            cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
+            plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+            return json.loads(plaintext)
+        except Exception:
+            return None
+
 API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
 
@@ -519,7 +572,6 @@ class APIClient:
         self.auth_token = None
         self.email = API_EMAIL
         self.password = API_PASSWORD
-        self.api_key = API_KEY
         # Browser-like headers to avoid session expiration and Cloudflare - EXACT same as otp_tool.py
         self.browser_headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Mobile Safari/537.36",
@@ -527,7 +579,7 @@ class APIClient:
             "Accept-Language": "en-GB,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
             "Origin": self.base_url,
-            "Referer": f"{self.base_url}/liveaccess",
+            "Referer": f"{self.base_url}/dashboard/getnum",
             "X-Requested-With": "XMLHttpRequest",
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
@@ -540,8 +592,61 @@ class APIClient:
         self._lock = threading.Lock()
     
     def login(self):
-          """Login to API - Updated to no-op for API Key"""
-          return True if self.api_key else False
+        """Login to API - Thread-safe"""
+        # Ensure only one thread performs login at a time
+        with self._lock:
+            # Double-check if another thread already logged in successfully
+            if self.auth_token:
+                # We could test validity here, but simplified to just return True if recently updated?
+                # For now, let's allow re-login to be safe, but only one at a time.
+                pass
+
+            try:
+                login_headers = {
+                    **self.browser_headers,
+                    "Referer": f"{self.base_url}/mdashboard/getnum"
+                }
+                # Hypothesized login endpoint
+                login_url = f"{self.base_url}/mapi/v1/mauth/login"
+                
+                logger.info(f"Attempting login to {login_url}")
+                login_resp = self.session.post(
+                    login_url,
+                    json={"email": self.email, "password": self.password},
+                    headers=login_headers,
+                    timeout=15
+                )
+                
+                if login_resp.status_code in [200, 201]:
+                    login_data = login_resp.json()
+                    
+                    # Check for token in response
+                    token = None
+                    if 'data' in login_data and 'token' in login_data['data']:
+                        token = login_data['data']['token']
+                    elif 'token' in login_data:
+                        token = login_data['token']
+                    elif 'meta' in login_data and 'token' in login_data['meta']:
+                        token = login_data['meta']['token']
+                    
+                    if token:
+                        self.auth_token = token
+                        self.session.headers.update({"mauthtoken": self.auth_token})
+                        logger.info("Login successful")
+                        return True
+                    else:
+                        logger.error(f"Login response missing token: {login_data}")
+                else:
+                    logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
+                    if login_resp.status_code == 404:
+                         logger.error("Login endpoint not found. Please check API documentation or provide a HAR with login.")
+
+                return False
+            except Exception as e:
+                logger.error(f"Login error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return False
     
     def _normalize_range_token(self, value):
         """Normalize any range-like token to [0-9X] uppercase text."""
@@ -654,59 +759,11 @@ class APIClient:
         return [r for r in unique_ranges if str(r.get('service') or "").strip()]
 
     def get_ranges(self, app_id, max_retries=3, keyword=""):
-        """Get ranges using /liveaccess endpoint"""
+        """Get ranges using new getnum-era console stream metadata."""
         try:
-            app_id_norm = str(app_id or "").strip().lower()
-            cache_key = f"ranges_live::{app_id_norm}"
-            now_ts = time.time()
-
-            if cache_key in self._ranges_cache:
-                entry = self._ranges_cache[cache_key]
-                if now_ts - entry['timestamp'] < self._cache_duration:
-                    return entry['data']
-
-            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/liveaccess"}
-            resp = self.session.get(f"{self.base_url}/liveaccess", headers=headers, timeout=10)
-            
-            if resp.status_code != 200:
-                return []
-                
-            payload = resp.json()
-            if payload.get("meta", {}).get("code") != 200:
-                return []
-                
-            services = payload.get("data", {}).get("services", [])
-            all_ranges = []
-            primary_services = {"whatsapp", "facebook", "telegram"}
-            
-            for s in services:
-                sid = s.get("sid", "")
-                sid_norm = normalize_service_name(sid)
-                
-                # Filter by app_id (whatsapp, facebook, telegram, or others)
-                match = False
-                if app_id_norm in primary_services:
-                    if sid_norm == app_id_norm: match = True
-                elif app_id_norm == "others":
-                    if sid_norm not in primary_services: match = True
-                else:
-                    if app_id_norm in sid.lower(): match = True
-                
-                if match:
-                    for r_val in s.get("ranges", []):
-                        all_ranges.append({
-                            'id': r_val,
-                            'range_id': r_val,
-                            'name': r_val,
-                            'service': sid,
-                            'country': detect_country_from_range(r_val) or "Unknown",
-                            'operator': "Unknown"
-                        })
-            
-            self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': all_ranges}
-            return all_ranges
-        except Exception as e:
-            logger.error(f"Error getting ranges: {e}"); return []
+            if not self.auth_token:
+                if not self.login():
+                    return []
 
             app_id_norm = str(app_id or "").strip().lower()
             cache_key = f"ranges_console::{app_id_norm}"
@@ -754,40 +811,91 @@ class APIClient:
             return []
 
     def get_applications(self, max_retries=3):
-        """Get available applications from /liveaccess"""
-        try:
-            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/liveaccess"}
-            resp = self.session.get(f"{self.base_url}/liveaccess", headers=headers, timeout=10)
-            apps = []
-            if resp.status_code == 200:
-                payload = resp.json()
-                services = payload.get("data", {}).get("services", [])
-                for s in services:
-                    sid = s.get("sid", "")
-                    if sid: apps.append({'id': sid, 'name': sid})
-            
-            if not apps: # Fallback to hardcoded
-                for name, app_id in SERVICE_APP_IDS.items():
-                    apps.append({'id': app_id, 'name': app_id})
-            return apps
-        except Exception as e:
-            logger.error(f"Error getting applications: {e}"); return []
+        """Get available applications - Mapped from SERVICE_APP_IDS for compatibility"""
+        # The new API doesn't list "all apps" easily, we search by name.
+        # But for 'Others' menu, we might want to return some defaults or nothing.
+        # Current bot logic allows 'Others' to fetch dynamic list.
+        # For now, we return the primary ones + maybe some popular ones if we want?
+        # Or simply return empty list for others if we don't support dynamic discovery yet.
+        # Let's return the primary ones to ensure they appear if needed.
+        apps = []
+        for name, app_id in SERVICE_APP_IDS.items():
+            apps.append({'id': app_id, 'name': app_id})
+        return apps
     
     def get_number(self, range_id):
-        """Request a number from a range - Updated for new API"""
+        """Request a number from a range"""
         try:
-            normalized = self._normalize_range_token(range_id).replace('X', '')
-            if not normalized: return None
-            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/getnum"}
-            resp = self.session.post(f"{self.base_url}/getnum", json={"rid": normalized}, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                payload = resp.json()
-                if payload.get("meta", {}).get("code") == 200:
-                    data = payload.get("data")
-                    if data: data['number'] = data.get('full_number'); return data
+            if not self.auth_token:
+                if not self.login():
+                    return None
+
+            normalized = self._normalize_range_token(range_id)
+            if not normalized:
+                return None
+
+            candidates = []
+            if 'X' in normalized:
+                candidates.append(normalized)
+            else:
+                candidates.append(f"{normalized}XXX")
+                candidates.append(normalized)
+
+            # Keep order and remove duplicates.
+            dedup_candidates = []
+            seen = set()
+            for c in candidates:
+                if c not in seen:
+                    seen.add(c)
+                    dedup_candidates.append(c)
+
+            for candidate_range in dedup_candidates:
+                headers = {
+                    **self.browser_headers,
+                    "mauthtoken": self.auth_token,
+                    "Referer": f"{self.base_url}/mdashboard/getnum?range={candidate_range}"
+                }
+
+                payload = {
+                    "range": candidate_range,
+                    "is_national": False,
+                    "remove_plus": False
+                }
+
+                resp = self.session.post(
+                    f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
+                    json=payload,
+                    headers=headers,
+                    timeout=15
+                )
+
+                if resp.status_code in [401, 403]:
+                    self.auth_token = None
+                    if self.login():
+                        headers["mauthtoken"] = self.auth_token
+                        resp = self.session.post(
+                            f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
+                            json=payload,
+                            headers=headers,
+                            timeout=15
+                        )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if 'data' in data:
+                        number_data = data['data']
+                        if isinstance(number_data, dict):
+                            if 'number' in number_data:
+                                return number_data
+                            if 'copy' in number_data:
+                                number_data['number'] = number_data['copy']
+                                return number_data
+
+            logger.warning(f"get_number failed for range={range_id}")
             return None
         except Exception as e:
-            logger.error(f"Error getting number: {e}"); return None
+            logger.error(f"Error getting number: {e}")
+            return None
     
     def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
         """Request multiple numbers from a range - with filtering and dual range_id/range_name logic."""
@@ -841,43 +949,169 @@ class APIClient:
         return numbers
     
     def check_otp(self, number):
-        """Check for OTP on a number - Updated for new API"""
-        return self.check_otp_batch([number]).get(number)
+        """Check for OTP on a number - using NEW API /mapi/v1/mdashboard/getnum/info"""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return None
+            
+            # Date format YYYY-MM-DD for new API
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            headers = {
+                **self.browser_headers,
+                "mauthtoken": self.auth_token,
+                "Referer": f"{self.base_url}/mdashboard/getnum"
+            }
+            
+            # New API: GET /mapi/v1/mdashboard/getnum/info?date=...
+            resp = self.session.get(
+                f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
+                headers=headers,
+                timeout=8
+            )
+            
+            if resp.status_code == 401:
+                logger.info("Token expired in check_otp, refreshing...")
+                if self.login():
+                    headers["mauthtoken"] = self.auth_token
+                    resp = self.session.get(
+                        f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
+                        headers=headers,
+                        timeout=8
+                    )
+                else:
+                    return None
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                # Expected: {"data": {"numbers": [{"number": "...", "message": "..."}, ...]}}
+                if 'data' in data and data['data']:
+                    numbers_list = data['data'].get('numbers', [])
+                    if numbers_list:
+                        target_normalized = number.replace('+', '').replace(' ', '').strip()
+                        
+                        for num_obj in numbers_list:
+                            api_num = num_obj.get('number', '').replace('+', '').strip()
+                            # Check match & last 9 digits
+                            if api_num == target_normalized or (len(api_num) >= 9 and len(target_normalized) >= 9 and api_num[-9:] == target_normalized[-9:]):
+                                # Found the number.
+                                # New API returns full message in 'otp' and 'message' fields.
+                                # We map 'message' to 'sms_content' and clear 'otp' to let monitor_otp extract the code.
+                                msg = num_obj.get('message') or num_obj.get('otp', '')
+                                if msg:
+                                    num_obj['sms_content'] = msg
+                                    num_obj['otp'] = None  # Clear to force extraction
+                                    return num_obj
+                                else:
+                                    return num_obj 
+            return None
+        except Exception as e:
+            logger.error(f"Error checking OTP: {e}")
+            return None
     
     def check_otp_batch(self, numbers):
-        """Check OTP for multiple numbers - Updated for new API /success-otp"""
+        """Check OTP for multiple numbers - using NEW API"""
         try:
-            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/success-otp"}
-            resp = self.session.get(f"{self.base_url}/success-otp", headers=headers, timeout=10)
+            if not self.auth_token:
+                if not self.login():
+                    return {}
+            
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            headers = {
+                **self.browser_headers,
+                "mauthtoken": self.auth_token,
+                "Referer": f"{self.base_url}/mdashboard/getnum"
+            }
+            
+            resp = self.session.get(
+                f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
+                headers=headers,
+                timeout=8
+            )
+            
+            if resp.status_code == 401:
+                if self.login():
+                    headers["mauthtoken"] = self.auth_token
+                    resp = self.session.get(
+                        f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
+                        headers=headers,
+                        timeout=8
+                    )
+                else:
+                    return {}
+
             result = {}
             if resp.status_code == 200:
-                payload = resp.json()
-                if payload.get("meta", {}).get("code") == 200:
-                    otps = payload.get("data", {}).get("otps", [])
-                    target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}
-                    target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
-                    for obj in otps:
-                        api_num = obj.get('number', '').replace('+', '').strip()
-                        obj['sms_content'] = obj.get('message'); obj['otp'] = None
-                        if api_num in target_map_exact: result[target_map_exact[api_num]] = obj
-                        elif api_num[-9:] in target_map_last9: result[target_map_last9[api_num[-9:]]] = obj
+                data = resp.json()
+                if 'data' in data and data['data']:
+                    numbers_list = data['data'].get('numbers', [])
+                    if numbers_list:
+                        # Create map of API numbers to their data
+                        # We also handle last 9 digits and exact matches
+                        
+                        target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}
+                        target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
+                        
+                        for num_obj in numbers_list:
+                            api_num = num_obj.get('number', '').replace('+', '').strip()
+                            
+                            # Prepare object logic (same as check_otp)
+                            msg = num_obj.get('message') or num_obj.get('otp', '')
+                            if msg:
+                                num_obj['sms_content'] = msg
+                                num_obj['otp'] = None # Forces extraction in monitor_otp
+
+                            # Check match
+                            if api_num in target_map_exact:
+                                origin = target_map_exact[api_num]
+                                result[origin] = num_obj
+                            elif len(api_num) >= 9 and api_num[-9:] in target_map_last9:
+                                origin = target_map_last9[api_num[-9:]]
+                                result[origin] = num_obj
+
             return result
         except Exception as e:
-            logger.error(f"Error checking OTP batch: {e}"); return {}
+            logger.error(f"Error checking OTP batch: {e}")
+            return {}
 
     def get_console_logs(self):
-        """Get latest masked OTP logs from console endpoint - Updated for new API"""
+        """Get latest masked OTP logs from console endpoint."""
         try:
-            headers = {**self.browser_headers, "mauthapi": self.api_key, "Referer": f"{self.base_url}/console"}
-            resp = self.session.get(f"{self.base_url}/console", headers=headers, timeout=10)
-            if resp.status_code == 200:
-                payload = resp.json()
-                if payload.get("meta", {}).get("code") == 200:
-                    hits = payload.get("data", {}).get("hits", [])
-                    return [{'id': f"{h.get('range')}_{h.get('time')}", 'app_name': h.get('sid'), 'sms': h.get('message'), 'range': h.get('range'), 'time': h.get('time')} for h in hits]
-            return []
+            if not self.auth_token:
+                if not self.login():
+                    return []
+
+            headers = {
+                **self.browser_headers,
+                "mauthtoken": self.auth_token,
+                "Referer": f"{self.base_url}/mdashboard/console",
+                "Accept": "application/json, text/plain, */*"
+            }
+
+            url = f"{self.base_url}/mapi/v1/mdashboard/console/info"
+            resp = self.session.get(url, headers=headers, timeout=10)
+
+            if resp.status_code in [401, 403]:
+                logger.info("Token expired in get_console_logs, refreshing...")
+                if self.login():
+                    headers["mauthtoken"] = self.auth_token
+                    resp = self.session.get(url, headers=headers, timeout=10)
+                else:
+                    return []
+
+            if resp.status_code != 200:
+                logger.warning(f"get_console_logs failed: status={resp.status_code} body={resp.text[:200]}")
+                return []
+
+            payload = resp.json()
+            data = payload.get("data", {}) if isinstance(payload, dict) else {}
+            logs = data.get("logs", []) if isinstance(data, dict) else []
+            return logs if isinstance(logs, list) else []
         except Exception as e:
-            logger.error(f"Error getting console logs: {e}"); return []
+            logger.error(f"Error getting console logs: {e}")
+            return []
 
 # Global API client - single session for all users
 global_api_client = None
@@ -1747,10 +1981,12 @@ def build_console_channel_message(log_item):
     country_flag = get_country_flag(country)
     country_code = get_country_code(country)
     service_display = {
-        "whatsapp": "WhatsApp",
-        "facebook": "Facebook",
-        "telegram": "Telegram"
+          "whatsapp": "WhatsApp",
+          "facebook": "Facebook",
+          "telegram": "Telegram",
+        "******": "WhatsApp"
     }.get(service_key, service_raw)
+    if service_raw == "******": service_display = "WhatsApp"
 
     return f"{country_flag} #{country_code} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
 
@@ -4084,7 +4320,9 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             sms_content = str(log_item.get('sms') or '')
             service = str(log_item.get('app_name') or '')
-            service_key = normalize_service_name(service)
+              if service == "******":
+                  service = "WhatsApp"
+              service_key = normalize_service_name(service)
 
             # Forward only allowed service groups (fixed for now).
             if CONSOLE_FORWARD_SERVICE_KEYS and service_key not in CONSOLE_FORWARD_SERVICE_KEYS:
