@@ -170,7 +170,7 @@ class WireCodec:
         except Exception:
             return None
 
-API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
+API_EMAIL = os.getenv("API_EMAIL", "roni797758@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
 
 # Supabase Configuration
@@ -561,98 +561,105 @@ def resolve_app_id(service_name, context):
 class APIClient:
     def __init__(self):
         self.base_url = BASE_URL
-        # Use curl_cffi if available (best for Cloudflare bypass)
         if HAS_CURL_CFFI:
             self.session = curl_requests.Session(impersonate="chrome110")
             self.use_curl = True
-            logger.info("Using curl_cffi for Cloudflare bypass")
         elif HAS_CLOUDSCRAPER:
             self.session = cloudscraper.create_scraper()
             self.use_curl = False
-            logger.info("Using cloudscraper for Cloudflare bypass")
         else:
             self.session = requests.Session()
             self.use_curl = False
-            logger.warning("No Cloudflare bypass available, using standard requests")
+        
         self.auth_token = None
         self.email = API_EMAIL
         self.password = API_PASSWORD
-        # Browser-like headers to avoid session expiration and Cloudflare - EXACT same as otp_tool.py
+        self.codec = WireCodec("M0000000001") # Fallback SID
+        
         self.browser_headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Mobile Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
             "Accept": "*/*",
             "Accept-Language": "en-GB,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
-            "Origin": self.base_url,
-            "Referer": f"{self.base_url}/dashboard/getnum",
+            "Content-Type": "text/plain; charset=utf-8",
             "X-Requested-With": "XMLHttpRequest",
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty"
         }
-        self._ranges_cache = {}  # Cache structure: {app_id: {'timestamp': time.time(), 'data': [...]}}
+        self._ranges_cache = {}
         self._cache_duration = int(os.getenv("RANGES_CACHE_SECONDS", "30"))
-        
-        # Internal lock for thread safety (login/token refresh)
         self._lock = threading.Lock()
-    
-    def login(self):
-        """Login to API - Thread-safe"""
-        # Ensure only one thread performs login at a time
-        with self._lock:
-            # Double-check if another thread already logged in successfully
-            if self.auth_token:
-                # We could test validity here, but simplified to just return True if recently updated?
-                # For now, let's allow re-login to be safe, but only one at a time.
-                pass
 
+    def _get_sid_from_jwt(self, token):
+        try:
+            parts = token.split('.')
+            if len(parts) < 2: return None
+            payload_b64 = parts[1]
+            payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
+            import base64
+            data = json.loads(base64.b64decode(payload_b64).decode())
+            return data.get('sid')
+        except Exception:
+            return None
+
+    def _api_call(self, method, endpoint, payload=None, retry_login=True):
+        if not self.auth_token and endpoint != "/@auth/login":
+            if not self.login(): return None
+        
+        headers = self.browser_headers.copy()
+        if self.auth_token:
+            headers["mauth"] = self.auth_token
+            
+        data = None
+        if payload is not None:
+            data = self.codec.encrypt(payload)
+            
+        try:
+            url = f"{self.base_url}{endpoint}"
+            if method.upper() == "POST":
+                resp = self.session.post(url, data=data, headers=headers, timeout=15)
+            else:
+                resp = self.session.get(url, headers=headers, timeout=15)
+                
+            if resp.status_code == 401 and retry_login:
+                if self.login():
+                    return self._api_call(method, endpoint, payload, retry_login=False)
+                return None
+                
+            if resp.status_code == 200:
+                dec = self.codec.decrypt(resp.text)
+                if dec: return dec
+                # Fallback for plain text or errors
+                try: return resp.json()
+                except: return None
+            return None
+        except Exception as e:
+            logger.error(f"API call error {endpoint}: {e}")
+            return None
+
+    def login(self):
+        with self._lock:
             try:
-                login_headers = {
-                    **self.browser_headers,
-                    "Referer": f"{self.base_url}/mdashboard/getnum"
-                }
-                # Hypothesized login endpoint
-                login_url = f"{self.base_url}/mapi/v1/mauth/login"
+                self.codec = WireCodec("M0000000001") # Reset to fallback for login
+                payload = {"email": self.email, "password": self.password, "remember": True}
+                data = self._api_call("POST", "/@auth/login", payload, retry_login=False)
                 
-                logger.info(f"Attempting login to {login_url}")
-                login_resp = self.session.post(
-                    login_url,
-                    json={"email": self.email, "password": self.password},
-                    headers=login_headers,
-                    timeout=15
-                )
-                
-                if login_resp.status_code in [200, 201]:
-                    login_data = login_resp.json()
-                    
-                    # Check for token in response
-                    token = None
-                    if 'data' in login_data and 'token' in login_data['data']:
-                        token = login_data['data']['token']
-                    elif 'token' in login_data:
-                        token = login_data['token']
-                    elif 'meta' in login_data and 'token' in login_data['meta']:
-                        token = login_data['meta']['token']
-                    
+                if data and data.get('meta', {}).get('code') == 200:
+                    token = data['data'].get('session_token')
                     if token:
                         self.auth_token = token
-                        self.session.headers.update({"mauthtoken": self.auth_token})
-                        logger.info("Login successful")
+                        sid = self._get_sid_from_jwt(token)
+                        if sid:
+                            self.codec = WireCodec(sid)
+                        logger.info(f"Login successful. SID: {sid}")
                         return True
-                    else:
-                        logger.error(f"Login response missing token: {login_data}")
-                else:
-                    logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
-                    if login_resp.status_code == 404:
-                         logger.error("Login endpoint not found. Please check API documentation or provide a HAR with login.")
-
+                logger.error(f"Login failed: {data}")
                 return False
             except Exception as e:
                 logger.error(f"Login error: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
                 return False
-    
+
     def _normalize_range_token(self, value):
         """Normalize any range-like token to [0-9X] uppercase text."""
         if value is None:
@@ -993,7 +1000,7 @@ class APIClient:
                 # Expected: {"data": {"numbers": [{"number": "...", "message": "..."}, ...]}}
                 if 'data' in data and data['data']:
                     numbers_list = data['data'].get('numbers', [])
-                    if numbers_list:
+                if numbers_list:
                         target_normalized = number.replace('+', '').replace(' ', '').strip()
                         
                         for num_obj in numbers_list:
@@ -1016,43 +1023,12 @@ class APIClient:
             return None
     
     def check_otp_batch(self, numbers):
-        """Check OTP for multiple numbers - using NEW API"""
         try:
-            if not self.auth_token:
-                if not self.login():
-                    return {}
-            
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            
-            headers = {
-                **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/getnum"
-            }
-            
-            resp = self.session.get(
-                f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                headers=headers,
-                timeout=8
-            )
-            
-            if resp.status_code == 401:
-                if self.login():
-                    headers["mauthtoken"] = self.auth_token
-                    resp = self.session.get(
-                        f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                        headers=headers,
-                        timeout=8
-                    )
-                else:
-                    return {}
-
+            data = self._api_call("GET", "/@dashboard/dialer/getnum/list?page=1")
             result = {}
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'data' in data and data['data']:
-                    numbers_list = data['data'].get('numbers', [])
-                    if numbers_list:
+            if data and "data" in data and data["data"]:
+                numbers_list = data["data"].get("numbers", [])
+                if numbers_list:
                         # Create map of API numbers to their data
                         # We also handle last 9 digits and exact matches
                         
@@ -1082,38 +1058,11 @@ class APIClient:
             return {}
 
     def get_console_logs(self):
-        """Get latest masked OTP logs from console endpoint."""
         try:
-            if not self.auth_token:
-                if not self.login():
-                    return []
-
-            headers = {
-                **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/console",
-                "Accept": "application/json, text/plain, */*"
-            }
-
-            url = f"{self.base_url}/mapi/v1/mdashboard/console/info"
-            resp = self.session.get(url, headers=headers, timeout=10)
-
-            if resp.status_code in [401, 403]:
-                logger.info("Token expired in get_console_logs, refreshing...")
-                if self.login():
-                    headers["mauthtoken"] = self.auth_token
-                    resp = self.session.get(url, headers=headers, timeout=10)
-                else:
-                    return []
-
-            if resp.status_code != 200:
-                logger.warning(f"get_console_logs failed: status={resp.status_code} body={resp.text[:200]}")
-                return []
-
-            payload = resp.json()
-            data = payload.get("data", {}) if isinstance(payload, dict) else {}
-            logs = data.get("logs", []) if isinstance(data, dict) else []
-            return logs if isinstance(logs, list) else []
+            data = self._api_call("GET", "/@dashboard/dialer/console/info")
+            if data and "data" in data:
+                return data["data"].get("logs", [])
+            return []
         except Exception as e:
             logger.error(f"Error getting console logs: {e}")
             return []
