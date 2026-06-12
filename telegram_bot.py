@@ -114,10 +114,13 @@ import time
 import base64
 try:
     from Cryptodome.Cipher import AES
+    # logger.info("Using Cryptodome.Cipher")
 except ImportError:
     try:
         from Crypto.Cipher import AES
-    except ImportError:
+        # logger.info("Using Crypto.Cipher")
+    except ImportError as e:
+        # logger.error(f"Failed to import AES from both Cryptodome and Crypto: {e}")
         AES = None
 
 # New API Configuration
@@ -151,7 +154,8 @@ class WireCodec:
 
     def encrypt(self, payload_dict):
         if AES is None:
-            raise ImportError("AES library (pycryptodomex) is not installed correctly.")
+            # Fallback or silent error? Better to raise with info
+            raise ImportError("Crypto library not found. Ensure pycryptodome or pycryptodomex is in requirements.txt and clear build cache on Render.")
         plaintext = json.dumps(payload_dict, separators=(',', ':')).encode()
         nonce = hashlib.sha256(str(time.time()).encode()).digest()[:12]
         cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
