@@ -110,7 +110,8 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
 OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))  # Channel ID for forwarding OTP messages
 
 # API Configuration (from otp_tool.py)
-BASE_URL = "https://stexsms.com"
+BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness/@public/api"
+API_KEY = os.getenv("API_KEY")
 API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
 
@@ -518,6 +519,7 @@ class APIClient:
         self.auth_token = None
         self.email = API_EMAIL
         self.password = API_PASSWORD
+          self.api_key = API_KEY
         # Browser-like headers to avoid session expiration and Cloudflare - EXACT same as otp_tool.py
         self.browser_headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Mobile Safari/537.36",
@@ -525,7 +527,7 @@ class APIClient:
             "Accept-Language": "en-GB,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
             "Origin": self.base_url,
-            "Referer": f"{self.base_url}/dashboard/getnum",
+            "Referer": f"{self.base_url}/liveaccess",
             "X-Requested-With": "XMLHttpRequest",
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
@@ -538,63 +540,12 @@ class APIClient:
         self._lock = threading.Lock()
     
     def login(self):
-        """Login to API - Thread-safe"""
-        # Ensure only one thread performs login at a time
-        with self._lock:
-            # Double-check if another thread already logged in successfully
-            if self.auth_token:
-                # We could test validity here, but simplified to just return True if recently updated?
-                # For now, let's allow re-login to be safe, but only one at a time.
-                pass
+          """Login to API - Updated to no-op for API Key"""
+          if self.api_key:
+              return True
+          return False
 
-            try:
-                login_headers = {
-                    **self.browser_headers,
-                    "Referer": f"{self.base_url}/mdashboard/getnum"
-                }
-                # Hypothesized login endpoint
-                login_url = f"{self.base_url}/mapi/v1/mauth/login"
-                
-                logger.info(f"Attempting login to {login_url}")
-                login_resp = self.session.post(
-                    login_url,
-                    json={"email": self.email, "password": self.password},
-                    headers=login_headers,
-                    timeout=15
-                )
-                
-                if login_resp.status_code in [200, 201]:
-                    login_data = login_resp.json()
-                    
-                    # Check for token in response
-                    token = None
-                    if 'data' in login_data and 'token' in login_data['data']:
-                        token = login_data['data']['token']
-                    elif 'token' in login_data:
-                        token = login_data['token']
-                    elif 'meta' in login_data and 'token' in login_data['meta']:
-                        token = login_data['meta']['token']
-                    
-                    if token:
-                        self.auth_token = token
-                        self.session.headers.update({"mauthtoken": self.auth_token})
-                        logger.info("Login successful")
-                        return True
-                    else:
-                        logger.error(f"Login response missing token: {login_data}")
-                else:
-                    logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
-                    if login_resp.status_code == 404:
-                         logger.error("Login endpoint not found. Please check API documentation or provide a HAR with login.")
-
-                return False
-            except Exception as e:
-                logger.error(f"Login error: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                return False
-    
-    def _normalize_range_token(self, value):
+      def _normalize_range_token(self, value):
         """Normalize any range-like token to [0-9X] uppercase text."""
         if value is None:
             return ""
@@ -770,79 +721,41 @@ class APIClient:
         return apps
     
     def get_number(self, range_id):
-        """Request a number from a range"""
+        """Request a number from a range - Updated for new API"""
         try:
-            if not self.auth_token:
-                if not self.login():
-                    return None
-
-            normalized = self._normalize_range_token(range_id)
+            normalized = self._normalize_range_token(range_id).replace('X', '')
             if not normalized:
                 return None
 
-            candidates = []
-            if 'X' in normalized:
-                candidates.append(normalized)
-            else:
-                candidates.append(f"{normalized}XXX")
-                candidates.append(normalized)
+            headers = {
+                **self.browser_headers,
+                "mauthapi": self.api_key,
+                "Referer": f"{self.base_url}/getnum"
+            }
 
-            # Keep order and remove duplicates.
-            dedup_candidates = []
-            seen = set()
-            for c in candidates:
-                if c not in seen:
-                    seen.add(c)
-                    dedup_candidates.append(c)
+            payload = {"rid": normalized}
 
-            for candidate_range in dedup_candidates:
-                headers = {
-                    **self.browser_headers,
-                    "mauthtoken": self.auth_token,
-                    "Referer": f"{self.base_url}/mdashboard/getnum?range={candidate_range}"
-                }
+            resp = self.session.post(
+                f"{self.base_url}/getnum",
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
 
-                payload = {
-                    "range": candidate_range,
-                    "is_national": False,
-                    "remove_plus": False
-                }
-
-                resp = self.session.post(
-                    f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
-                    json=payload,
-                    headers=headers,
-                    timeout=15
-                )
-
-                if resp.status_code in [401, 403]:
-                    self.auth_token = None
-                    if self.login():
-                        headers["mauthtoken"] = self.auth_token
-                        resp = self.session.post(
-                            f"{self.base_url}/mapi/v1/mdashboard/getnum/number",
-                            json=payload,
-                            headers=headers,
-                            timeout=15
-                        )
-
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if 'data' in data:
-                        number_data = data['data']
-                        if isinstance(number_data, dict):
-                            if 'number' in number_data:
-                                return number_data
-                            if 'copy' in number_data:
-                                number_data['number'] = number_data['copy']
-                                return number_data
-
-            logger.warning(f"get_number failed for range={range_id}")
+            if resp.status_code == 200:
+                payload = resp.json()
+                if payload.get("meta", {}).get("code") == 200:
+                    data = payload.get("data")
+                    if data and isinstance(data, dict):
+                        # Map to existing expected format
+                        data['number'] = data.get('full_number')
+                        return data
+            
+            logger.warning(f"get_number failed for range={range_id}: {resp.text[:200]}")
             return None
         except Exception as e:
             logger.error(f"Error getting number: {e}")
             return None
-    
     def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
         """Request multiple numbers from a range - with filtering and dual range_id/range_name logic."""
         numbers = []
@@ -895,686 +808,86 @@ class APIClient:
         return numbers
     
     def check_otp(self, number):
-        """Check for OTP on a number - using NEW API /mapi/v1/mdashboard/getnum/info"""
-        try:
-            if not self.auth_token:
-                if not self.login():
-                    return None
-            
-            # Date format YYYY-MM-DD for new API
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            
-            headers = {
-                **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/getnum"
-            }
-            
-            # New API: GET /mapi/v1/mdashboard/getnum/info?date=...
-            resp = self.session.get(
-                f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                headers=headers,
-                timeout=8
-            )
-            
-            if resp.status_code == 401:
-                logger.info("Token expired in check_otp, refreshing...")
-                if self.login():
-                    headers["mauthtoken"] = self.auth_token
-                    resp = self.session.get(
-                        f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                        headers=headers,
-                        timeout=8
-                    )
-                else:
-                    return None
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                # Expected: {"data": {"numbers": [{"number": "...", "message": "..."}, ...]}}
-                if 'data' in data and data['data']:
-                    numbers_list = data['data'].get('numbers', [])
-                    if numbers_list:
-                        target_normalized = number.replace('+', '').replace(' ', '').strip()
-                        
-                        for num_obj in numbers_list:
-                            api_num = num_obj.get('number', '').replace('+', '').strip()
-                            # Check match & last 9 digits
-                            if api_num == target_normalized or (len(api_num) >= 9 and len(target_normalized) >= 9 and api_num[-9:] == target_normalized[-9:]):
-                                # Found the number.
-                                # New API returns full message in 'otp' and 'message' fields.
-                                # We map 'message' to 'sms_content' and clear 'otp' to let monitor_otp extract the code.
-                                msg = num_obj.get('message') or num_obj.get('otp', '')
-                                if msg:
-                                    num_obj['sms_content'] = msg
-                                    num_obj['otp'] = None  # Clear to force extraction
-                                    return num_obj
-                                else:
-                                    return num_obj 
-            return None
-        except Exception as e:
-            logger.error(f"Error checking OTP: {e}")
-            return None
-    
+        """Check for OTP on a number - Updated for new API"""
+        results = self.check_otp_batch([number])
+        return results.get(number)
     def check_otp_batch(self, numbers):
-        """Check OTP for multiple numbers - using NEW API"""
+        """Check OTP for multiple numbers - Updated for new API /success-otp"""
         try:
-            if not self.auth_token:
-                if not self.login():
-                    return {}
-            
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            
             headers = {
                 **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/getnum"
+                "mauthapi": self.api_key,
+                "Referer": f"{self.base_url}/success-otp"
             }
-            
+
             resp = self.session.get(
-                f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
+                f"{self.base_url}/success-otp",
                 headers=headers,
-                timeout=8
+                timeout=10
             )
-            
-            if resp.status_code == 401:
-                if self.login():
-                    headers["mauthtoken"] = self.auth_token
-                    resp = self.session.get(
-                        f"{self.base_url}/mapi/v1/mdashboard/getnum/info?date={today_str}&page=1&search=&status=",
-                        headers=headers,
-                        timeout=8
-                    )
-                else:
-                    return {}
 
             result = {}
             if resp.status_code == 200:
-                data = resp.json()
-                if 'data' in data and data['data']:
-                    numbers_list = data['data'].get('numbers', [])
-                    if numbers_list:
-                        # Create map of API numbers to their data
-                        # We also handle last 9 digits and exact matches
-                        
-                        target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}
-                        target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
-                        
-                        for num_obj in numbers_list:
-                            api_num = num_obj.get('number', '').replace('+', '').strip()
-                            
-                            # Prepare object logic (same as check_otp)
-                            msg = num_obj.get('message') or num_obj.get('otp', '')
-                            if msg:
-                                num_obj['sms_content'] = msg
-                                num_obj['otp'] = None # Forces extraction in monitor_otp
+                payload = resp.json()
+                if payload.get("meta", {}).get("code") == 200:
+                    data = payload.get("data", {})
+                    otps_list = data.get("otps", [])
+                    if otps_list:
+                        target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}  
+                        target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in      
+numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
 
-                            # Check match
+                        for otp_obj in otps_list:
+                            api_num = otp_obj.get('number', '').replace('+', '').strip()
+                            # Map to expected format for monitor_otp
+                            otp_obj['sms_content'] = otp_obj.get('message')
+                            otp_obj['otp'] = None # Force extraction
+
                             if api_num in target_map_exact:
                                 origin = target_map_exact[api_num]
-                                result[origin] = num_obj
+                                result[origin] = otp_obj
                             elif len(api_num) >= 9 and api_num[-9:] in target_map_last9:
                                 origin = target_map_last9[api_num[-9:]]
-                                result[origin] = num_obj
+                                result[origin] = otp_obj
 
             return result
         except Exception as e:
             logger.error(f"Error checking OTP batch: {e}")
             return {}
-
     def get_console_logs(self):
-        """Get latest masked OTP logs from console endpoint."""
+        """Get latest masked OTP logs from console endpoint - Updated for new API"""
         try:
-            if not self.auth_token:
-                if not self.login():
-                    return []
-
             headers = {
                 **self.browser_headers,
-                "mauthtoken": self.auth_token,
-                "Referer": f"{self.base_url}/mdashboard/console",
-                "Accept": "application/json, text/plain, */*"
+                "mauthapi": self.api_key,
+                "Referer": f"{self.base_url}/console"
             }
 
-            url = f"{self.base_url}/mapi/v1/mdashboard/console/info"
+            url = f"{self.base_url}/console"
             resp = self.session.get(url, headers=headers, timeout=10)
 
-            if resp.status_code in [401, 403]:
-                logger.info("Token expired in get_console_logs, refreshing...")
-                if self.login():
-                    headers["mauthtoken"] = self.auth_token
-                    resp = self.session.get(url, headers=headers, timeout=10)
-                else:
-                    return []
-
-            if resp.status_code != 200:
-                logger.warning(f"get_console_logs failed: status={resp.status_code} body={resp.text[:200]}")
-                return []
-
-            payload = resp.json()
-            data = payload.get("data", {}) if isinstance(payload, dict) else {}
-            logs = data.get("logs", []) if isinstance(data, dict) else []
-            return logs if isinstance(logs, list) else []
+            if resp.status_code == 200:
+                payload = resp.json()
+                if payload.get("meta", {}).get("code") == 200:
+                    data = payload.get("data", {})
+                    hits = data.get("hits", [])
+                    # Map hits to expected log format
+                    logs = []
+                    for hit in hits:
+                        logs.append({
+                            'id': f"{hit.get('range')}_{hit.get('time')}",
+                            'app_name': hit.get('sid'),
+                            'sms': hit.get('message'),
+                            'range': hit.get('range'),
+                            'time': hit.get('time')
+                        })
+                    return logs
+            
+            logger.warning(f"get_console_logs failed: {resp.text[:200]}")
+            return []
         except Exception as e:
             logger.error(f"Error getting console logs: {e}")
             return []
-
-# Global API client - single session for all users
-global_api_client = None
-api_lock = threading.Lock()
-
-def get_global_api_client():
-    """Get or create global API client (single session for all users)"""
-    global global_api_client
-    if global_api_client is None:
-        global_api_client = APIClient()
-        # Try to login, but don't fail if it doesn't work - will retry on first API call
-        if not global_api_client.login():
-            logger.warning("Initial login failed, will retry on first API call")
-    return global_api_client
-
-def refresh_global_token():
-    """Refresh global API token if expired"""
-    global global_api_client
-    with api_lock:
-        if global_api_client:
-            if not global_api_client.login():
-                logger.error("Failed to refresh API token")
-                # Try to create new client
-                global_api_client = APIClient()
-                global_api_client.login()
-        else:
-            get_global_api_client()
-
-# Comprehensive Country calling codes mapping (199+ countries)
-COUNTRY_CODES = {
-    # 3-digit codes (check first - most specific)
-    '264': 'Namibia', '265': 'Malawi', '266': 'Lesotho', '267': 'Botswana',
-    '268': 'Swaziland', '269': 'Comoros', '290': 'Saint Helena', '291': 'Eritrea',
-    '297': 'Aruba', '298': 'Faroe Islands', '299': 'Greenland', '350': 'Gibraltar',
-    '351': 'Portugal', '352': 'Luxembourg', '353': 'Ireland', '354': 'Iceland',
-    '355': 'Albania', '356': 'Malta', '357': 'Cyprus', '358': 'Finland',
-    '359': 'Bulgaria', '370': 'Lithuania', '371': 'Latvia', '372': 'Estonia',
-    '373': 'Moldova', '374': 'Armenia', '375': 'Belarus', '376': 'Andorra',
-    '377': 'Monaco', '378': 'San Marino', '380': 'Ukraine', '381': 'Serbia',
-    '382': 'Montenegro', '383': 'Kosovo', '385': 'Croatia', '386': 'Slovenia',
-    '387': 'Bosnia', '389': 'Macedonia', '420': 'Czech Republic', '421': 'Slovakia',
-    '423': 'Liechtenstein', '500': 'Falkland Islands', '501': 'Belize', '502': 'Guatemala',
-    '503': 'El Salvador', '504': 'Honduras', '505': 'Nicaragua', '506': 'Costa Rica',
-    '507': 'Panama', '508': 'Saint Pierre', '509': 'Haiti', '590': 'Guadeloupe',
-    '591': 'Bolivia', '592': 'Guyana', '593': 'Ecuador', '594': 'French Guiana',
-    '595': 'Paraguay', '596': 'Martinique', '597': 'Suriname', '598': 'Uruguay',
-    '599': 'Netherlands Antilles', '670': 'East Timor', '672': 'Antarctica', '673': 'Brunei',
-    '674': 'Nauru', '675': 'Papua New Guinea', '676': 'Tonga', '677': 'Solomon Islands',
-    '678': 'Vanuatu', '679': 'Fiji', '680': 'Palau', '681': 'Wallis',
-    '682': 'Cook Islands', '683': 'Niue', '685': 'Samoa', '686': 'Kiribati',
-    '687': 'New Caledonia', '688': 'Tuvalu', '689': 'French Polynesia', '850': 'North Korea',
-    '852': 'Hong Kong', '853': 'Macau', '855': 'Cambodia', '856': 'Laos',
-    '880': 'Bangladesh', '886': 'Taiwan', '960': 'Maldives', '961': 'Lebanon',
-    '962': 'Jordan', '963': 'Syria', '964': 'Iraq', '965': 'Kuwait',
-    '966': 'Saudi Arabia', '967': 'Yemen', '968': 'Oman', '970': 'Palestine',
-    '971': 'UAE', '972': 'Israel', '973': 'Bahrain', '974': 'Qatar',
-    '975': 'Bhutan', '976': 'Mongolia', '977': 'Nepal', '992': 'Tajikistan',
-    '993': 'Turkmenistan', '994': 'Azerbaijan', '995': 'Georgia', '996': 'Kyrgyzstan',
-    '998': 'Uzbekistan', '240': 'Equatorial Guinea', '241': 'Gabon', '242': 'Congo',
-    '243': 'DR Congo', '244': 'Angola', '245': 'Guinea-Bissau', '246': 'Diego Garcia',
-    '247': 'Ascension', '248': 'Seychelles', '249': 'Sudan', '250': 'Rwanda',
-    '251': 'Ethiopia', '252': 'Somalia', '253': 'Djibouti', '254': 'Kenya',
-    '255': 'Tanzania', '256': 'Uganda', '257': 'Burundi', '258': 'Mozambique',
-    '260': 'Zambia', '261': 'Madagascar', '262': 'Reunion', '263': 'Zimbabwe',
-    '212': 'Morocco', '213': 'Algeria', '216': 'Tunisia', '218': 'Libya',
-    '220': 'Gambia', '221': 'Senegal', '222': 'Mauritania', '223': 'Mali',
-    '224': 'Guinea', '225': 'Ivory Coast', '226': 'Burkina Faso', '227': 'Niger',
-    '228': 'Togo', '229': 'Benin', '230': 'Mauritius', '231': 'Liberia',
-    '232': 'Sierra Leone', '233': 'Ghana',
-    # Missing African codes (common)
-    '234': 'Nigeria', '235': 'Chad', '236': 'Central African Republic', '237': 'Cameroon',
-    '238': 'Cape Verde', '239': 'Sao Tome and Principe',
-    # 2-digit codes
-    '20': 'Egypt', '27': 'South Africa', '30': 'Greece', '31': 'Netherlands',
-    '32': 'Belgium', '33': 'France', '34': 'Spain', '36': 'Hungary',
-    '39': 'Italy', '40': 'Romania', '41': 'Switzerland', '43': 'Austria',
-    '44': 'UK', '45': 'Denmark', '46': 'Sweden', '47': 'Norway',
-    '48': 'Poland', '49': 'Germany', '51': 'Peru', '52': 'Mexico',
-    '53': 'Cuba', '54': 'Argentina', '55': 'Brazil', '56': 'Chile',
-    '57': 'Colombia', '58': 'Venezuela', '60': 'Malaysia', '61': 'Australia',
-    '62': 'Indonesia', '63': 'Philippines', '64': 'New Zealand', '65': 'Singapore',
-    '66': 'Thailand', '81': 'Japan', '82': 'South Korea', '84': 'Vietnam',
-    '86': 'China', '90': 'Turkey', '91': 'India', '92': 'Pakistan',
-    '93': 'Afghanistan', '94': 'Sri Lanka', '95': 'Myanmar', '98': 'Iran',
-    # 1-digit codes (check last - least specific)
-    '1': 'USA', '7': 'Russia'
-}
-
-# Comprehensive Country flags mapping (all countries)
-COUNTRY_FLAGS = {
-    'Angola': '🇦🇴', 'Afghanistan': '🇦🇫', 'Albania': '🇦🇱', 'Algeria': '🇩🇿',
-    'Andorra': '🇦🇩', 'Argentina': '🇦🇷', 'Armenia': '🇦🇲', 'Aruba': '🇦🇼',
-    'Australia': '🇦🇺', 'Austria': '🇦🇹', 'Azerbaijan': '🇦🇿', 'Bahrain': '🇧🇭',
-    'Bangladesh': '🇧🇩', 'Belarus': '🇧🇾', 'Belgium': '🇧🇪', 'Belize': '🇧🇿',
-    'Benin': '🇧🇯', 'Bhutan': '🇧🇹', 'Bolivia': '🇧🇴', 'Bosnia': '🇧🇦',
-    'Botswana': '🇧🇼', 'Brazil': '🇧🇷', 'Brunei': '🇧🇳', 'Bulgaria': '🇧🇬',
-    'Burkina Faso': '🇧🇫', 'Burundi': '🇧🇮', 'Cameroon': '🇨🇲', 'Cambodia': '🇰🇭', 'Canada': '🇨🇦',
-    'Chile': '🇨🇱', 'China': '🇨🇳', 'Colombia': '🇨🇴', 'Congo': '🇨🇬',
-    'Costa Rica': '🇨🇷', 'Croatia': '🇭🇷', 'Cuba': '🇨🇺', 'Cyprus': '🇨🇾',
-    'Central African Republic': '🇨🇫', 'Chad': '🇹🇩', 'Nigeria': '🇳🇬', 'Cape Verde': '🇨🇻', 'Sao Tome and Principe': '🇸🇹',
-    'Czech Republic': '🇨🇿', 'DR Congo': '🇨🇩', 'Denmark': '🇩🇰', 'Djibouti': '🇩🇯',
-    'Ecuador': '🇪🇨', 'Egypt': '🇪🇬', 'El Salvador': '🇸🇻', 'Equatorial Guinea': '🇬🇶',
-    'Eritrea': '🇪🇷', 'Estonia': '🇪🇪', 'Ethiopia': '🇪🇹', 'Fiji': '🇫🇯',
-    'Finland': '🇫🇮', 'France': '🇫🇷', 'French Guiana': '🇬🇫', 'Gabon': '🇬🇦',
-    'Gambia': '🇬🇲', 'Georgia': '🇬🇪', 'Germany': '🇩🇪', 'Ghana': '🇬🇭',
-    'Gibraltar': '🇬🇮', 'Greece': '🇬🇷', 'Greenland': '🇬🇱', 'Guadeloupe': '🇬🇵',
-    'Guatemala': '🇬🇹', 'Guinea': '🇬🇳', 'Guinea-Bissau': '🇬🇼', 'Guyana': '🇬🇾',
-    'Haiti': '🇭🇹', 'Honduras': '🇭🇳', 'Hong Kong': '🇭🇰', 'Hungary': '🇭🇺',
-    'Iceland': '🇮🇸', 'India': '🇮🇳', 'Indonesia': '🇮🇩', 'Iran': '🇮🇷',
-    'Iraq': '🇮🇶', 'Ireland': '🇮🇪', 'Israel': '🇮🇱', 'Italy': '🇮🇹',
-    'Ivory Coast': '🇨🇮', 'Japan': '🇯🇵', 'Jordan': '🇯🇴', 'Kenya': '🇰🇪',
-    'Kiribati': '🇰🇮', 'Kosovo': '🇽🇰', 'Kuwait': '🇰🇼', 'Kyrgyzstan': '🇰🇬',
-    'Laos': '🇱🇦', 'Latvia': '🇱🇻', 'Lebanon': '🇱🇧', 'Lesotho': '🇱🇸',
-    'Liberia': '🇱🇷', 'Libya': '🇱🇾', 'Liechtenstein': '🇱🇮', 'Lithuania': '🇱🇹',
-    'Luxembourg': '🇱🇺', 'Macau': '🇲🇴', 'Macedonia': '🇲🇰', 'Madagascar': '🇲🇬',
-    'Malawi': '🇲🇼', 'Malaysia': '🇲🇾', 'Maldives': '🇲🇻', 'Mali': '🇲🇱',
-    'Malta': '🇲🇹', 'Martinique': '🇲🇶', 'Mauritania': '🇲🇷', 'Mauritius': '🇲🇺',
-    'Mexico': '🇲🇽', 'Moldova': '🇲🇩', 'Monaco': '🇲🇨', 'Mongolia': '🇲🇳',
-    'Montenegro': '🇲🇪', 'Morocco': '🇲🇦', 'Mozambique': '🇲🇿', 'Myanmar': '🇲🇲',
-    'Namibia': '🇳🇦', 'Nauru': '🇳🇷', 'Nepal': '🇳🇵', 'Netherlands': '🇳🇱',
-    'New Caledonia': '🇳🇨', 'New Zealand': '🇳🇿', 'Nicaragua': '🇳🇮', 'Niger': '🇳🇪',
-    'Nigeria': '🇳🇬', 'North Korea': '🇰🇵', 'Norway': '🇳🇴', 'Oman': '🇴🇲',
-    'Pakistan': '🇵🇰', 'Palau': '🇵🇼', 'Palestine': '🇵🇸', 'Panama': '🇵🇦',
-    'Papua New Guinea': '🇵🇬', 'Paraguay': '🇵🇾', 'Peru': '🇵🇪', 'Philippines': '🇵🇭',
-    'Poland': '🇵🇱', 'Portugal': '🇵🇹', 'Qatar': '🇶🇦', 'Reunion': '🇷🇪',
-    'Romania': '🇷🇴', 'Russia': '🇷🇺', 'Rwanda': '🇷🇼', 'Saudi Arabia': '🇸🇦',
-    'Senegal': '🇸🇳', 'Serbia': '🇷🇸', 'Seychelles': '🇸🇨', 'Sierra Leone': '🇸🇱',
-    'Singapore': '🇸🇬', 'Slovakia': '🇸🇰', 'Slovenia': '🇸🇮', 'Solomon Islands': '🇸🇧',
-    'Somalia': '🇸🇴', 'South Africa': '🇿🇦', 'South Korea': '🇰🇷', 'Spain': '🇪🇸',
-    'Sri Lanka': '🇱🇰', 'Sudan': '🇸🇩', 'Suriname': '🇸🇷', 'Swaziland': '🇸🇿',
-    'Sweden': '🇸🇪', 'Switzerland': '🇨🇭', 'Syria': '🇸🇾', 'Taiwan': '🇹🇼',
-    'Tajikistan': '🇹🇯', 'Tanzania': '🇹🇿', 'Thailand': '🇹🇭', 'Togo': '🇹🇬',
-    'Tonga': '🇹🇴', 'Tunisia': '🇹🇳', 'Turkey': '🇹🇷', 'Turkmenistan': '🇹🇲',
-    'Tuvalu': '🇹🇻', 'UAE': '🇦🇪', 'Uganda': '🇺🇬', 'UK': '🇬🇧',
-    'Ukraine': '🇺🇦', 'Uruguay': '🇺🇾', 'USA': '🇺🇸', 'Uzbekistan': '🇺🇿',
-    'Vanuatu': '🇻🇺', 'Venezuela': '🇻🇪', 'Vietnam': '🇻🇳', 'Yemen': '🇾🇪',
-    'Zambia': '🇿🇲', 'Zimbabwe': '🇿🇼', 'Comoros': '🇰🇲', 'East Timor': '🇹🇱',
-    'Falkland Islands': '🇫🇰', 'Faroe Islands': '🇫🇴', 'French Polynesia': '🇵🇫',
-    'Guinea-Bissau': '🇬🇼', 'Saint Helena': '🇸🇭', 'Saint Pierre': '🇵🇲',
-    'Wallis': '🇼🇫', 'Cook Islands': '🇨🇰', 'Niue': '🇳🇺', 'Samoa': '🇼🇸',
-    'Antarctica': '🇦🇶', 'Netherlands Antilles': '🇦🇼', 'Diego Garcia': '🇮🇴',
-    'Ascension': '🇦🇨'
-}
-
-def detect_country_from_range(range_name):
-    """Detect country from range name (e.g., 24491541XXXX -> Angola)"""
-    if not range_name:
-        return None
-    
-    # Extract digits from range name
-    digits = re.findall(r'\d+', str(range_name))
-    if not digits:
-        # Try alternative pattern - check if range name itself contains country code
-        range_str = str(range_name).replace('+', '').replace('-', '').replace(' ', '').replace('X', '').upper()
-        for code_len in [3, 2, 1]:
-            if len(range_str) >= code_len:
-                code = range_str[:code_len]
-                if code in COUNTRY_CODES:
-                    return COUNTRY_CODES[code]
-        return None
-    
-    first_part = digits[0]
-    
-    # Try to match country code (check from longest to shortest - most specific first)
-    for code_len in [3, 2, 1]:
-        if len(first_part) >= code_len:
-            code = first_part[:code_len]
-            if code in COUNTRY_CODES:
-                return COUNTRY_CODES[code]
-    
-    # If still not found, try alternative patterns
-    # Some ranges might have format like "+244" or "244-"
-    range_str = str(range_name).replace('+', '').replace('-', '').replace(' ', '').replace('X', '').replace('x', '')
-    for code_len in [3, 2, 1]:
-        if len(range_str) >= code_len:
-            code = range_str[:code_len]
-            if code.isdigit() and code in COUNTRY_CODES:
-                return COUNTRY_CODES[code]
-    
-    return None
-
-def get_country_flag(country_name):
-    """Get flag emoji for country"""
-    if not country_name or country_name == 'Unknown':
-        return '🌍'
-    
-    # Exact match first
-    if country_name in COUNTRY_FLAGS:
-        return COUNTRY_FLAGS[country_name]
-    
-    # Partial match
-    country_lower = country_name.lower()
-    for key, flag in COUNTRY_FLAGS.items():
-        if key.lower() == country_lower or key.lower() in country_lower or country_lower in key.lower():
-            return flag
-    
-    # Try removing spaces and special characters
-    country_normalized = country_name.replace(' ', '').replace('-', '').replace('_', '').lower()
-    for key, flag in COUNTRY_FLAGS.items():
-        key_normalized = key.replace(' ', '').replace('-', '').replace('_', '').lower()
-        if key_normalized == country_normalized or key_normalized in country_normalized:
-            return flag
-    
-    return '🌍'
-
-# Country to ISO country code mapping (for #DK format)
-COUNTRY_TO_ISO = {
-    'Denmark': 'DK', 'USA': 'US', 'UK': 'GB', 'India': 'IN', 'Bangladesh': 'BD',
-    'Pakistan': 'PK', 'Brazil': 'BR', 'China': 'CN', 'Japan': 'JP', 'South Korea': 'KR',
-    'Germany': 'DE', 'France': 'FR', 'Italy': 'IT', 'Spain': 'ES', 'Netherlands': 'NL',
-    'Belgium': 'BE', 'Switzerland': 'CH', 'Austria': 'AT', 'Sweden': 'SE', 'Norway': 'NO',
-    'Finland': 'FI', 'Poland': 'PL', 'Russia': 'RU', 'Turkey': 'TR', 'Saudi Arabia': 'SA',
-    'UAE': 'AE', 'Egypt': 'EG', 'South Africa': 'ZA', 'Nigeria': 'NG', 'Kenya': 'KE',
-    'Ghana': 'GH', 'Ivory Coast': 'CI', 'Indonesia': 'ID', 'Philippines': 'PH', 'Thailand': 'TH',
-    'Vietnam': 'VN', 'Malaysia': 'MY', 'Singapore': 'SG', 'Australia': 'AU', 'New Zealand': 'NZ',
-    'Canada': 'CA', 'Mexico': 'MX', 'Argentina': 'AR', 'Chile': 'CL', 'Colombia': 'CO',
-    'Peru': 'PE', 'Venezuela': 'VE', 'Greece': 'GR', 'Portugal': 'PT', 'Ireland': 'IE',
-    'Czech Republic': 'CZ', 'Romania': 'RO', 'Hungary': 'HU', 'Bulgaria': 'BG', 'Croatia': 'HR',
-    'Serbia': 'RS', 'Ukraine': 'UA', 'Belarus': 'BY', 'Kazakhstan': 'KZ', 'Israel': 'IL',
-    'Iran': 'IR', 'Iraq': 'IQ', 'Afghanistan': 'AF', 'Sri Lanka': 'LK', 'Myanmar': 'MM',
-    'Nepal': 'NP', 'Bhutan': 'BT', 'Maldives': 'MV', 'Lebanon': 'LB', 'Jordan': 'JO',
-    'Syria': 'SY', 'Yemen': 'YE', 'Oman': 'OM', 'Kuwait': 'KW', 'Qatar': 'QA', 'Bahrain': 'BH',
-    'Algeria': 'DZ', 'Morocco': 'MA', 'Tunisia': 'TN', 'Libya': 'LY', 'Sudan': 'SD',
-    'Ethiopia': 'ET', 'Tanzania': 'TZ', 'Uganda': 'UG', 'Rwanda': 'RW', 'Angola': 'AO',
-    'Mozambique': 'MZ', 'Zambia': 'ZM', 'Zimbabwe': 'ZW', 'Botswana': 'BW', 'Namibia': 'NA',
-    'Madagascar': 'MG', 'Mauritius': 'MU', 'Senegal': 'SN', 'Mali': 'ML', 'Burkina Faso': 'BF',
-    'Niger': 'NE', 'Chad': 'TD', 'Cameroon': 'CM', 'Gabon': 'GA', 'Congo': 'CG',
-    'DR Congo': 'CD', 'Central African Republic': 'CF', 'Equatorial Guinea': 'GQ', 'Sao Tome and Principe': 'ST',
-    'Guinea': 'GN', 'Sierra Leone': 'SL', 'Liberia': 'LR', 'Togo': 'TG', 'Benin': 'BJ',
-    'Gambia': 'GM', 'Guinea-Bissau': 'GW', 'Cape Verde': 'CV', 'Mauritania': 'MR',
-    'Djibouti': 'DJ', 'Eritrea': 'ER', 'Somalia': 'SO', 'Comoros': 'KM', 'Seychelles': 'SC',
-    'Malawi': 'MW', 'Lesotho': 'LS', 'Swaziland': 'SZ', 'Eswatini': 'SZ', 'Burundi': 'BI',
-    'Albania': 'AL', 'Armenia': 'AM', 'Azerbaijan': 'AZ', 'Georgia': 'GE', 'Moldova': 'MD',
-    'Lithuania': 'LT', 'Latvia': 'LV', 'Estonia': 'EE', 'Slovenia': 'SI', 'Slovakia': 'SK',
-    'Bosnia': 'BA', 'Macedonia': 'MK', 'Montenegro': 'ME', 'Kosovo': 'XK', 'Luxembourg': 'LU',
-    'Malta': 'MT', 'Cyprus': 'CY', 'Iceland': 'IS', 'Liechtenstein': 'LI', 'Monaco': 'MC',
-    'San Marino': 'SM', 'Andorra': 'AD', 'Vatican': 'VA', 'Greenland': 'GL', 'Faroe Islands': 'FO',
-    'Taiwan': 'TW', 'Hong Kong': 'HK', 'Macau': 'MO', 'Mongolia': 'MN', 'North Korea': 'KP',
-    'Laos': 'LA', 'Cambodia': 'KH', 'Brunei': 'BN', 'East Timor': 'TL', 'Papua New Guinea': 'PG',
-    'Fiji': 'FJ', 'Solomon Islands': 'SB', 'Vanuatu': 'VU', 'New Caledonia': 'NC', 'French Polynesia': 'PF',
-    'Samoa': 'WS', 'Tonga': 'TO', 'Palau': 'PW', 'Micronesia': 'FM', 'Marshall Islands': 'MH',
-    'Kiribati': 'KI', 'Nauru': 'NR', 'Tuvalu': 'TV', 'Cook Islands': 'CK', 'Niue': 'NU',
-    'Uruguay': 'UY', 'Paraguay': 'PY', 'Bolivia': 'BO', 'Ecuador': 'EC', 'Guyana': 'GY',
-    'Suriname': 'SR', 'French Guiana': 'GF', 'Belize': 'BZ', 'Guatemala': 'GT', 'El Salvador': 'SV',
-    'Honduras': 'HN', 'Nicaragua': 'NI', 'Costa Rica': 'CR', 'Panama': 'PA', 'Cuba': 'CU',
-    'Jamaica': 'JM', 'Haiti': 'HT', 'Dominican Republic': 'DO', 'Trinidad and Tobago': 'TT',
-    'Barbados': 'BB', 'Bahamas': 'BS', 'Grenada': 'GD', 'Saint Lucia': 'LC', 'Saint Vincent': 'VC',
-    'Antigua and Barbuda': 'AG', 'Dominica': 'DM', 'Saint Kitts': 'KN', 'Bermuda': 'BM',
-    'Cayman Islands': 'KY', 'British Virgin Islands': 'VG', 'US Virgin Islands': 'VI',
-    'Puerto Rico': 'PR', 'Guam': 'GU', 'Northern Mariana Islands': 'MP', 'American Samoa': 'AS',
-    'Falkland Islands': 'FK', 'Gibraltar': 'GI', 'Reunion': 'RE', 'Mayotte': 'YT',
-    'French Guiana': 'GF', 'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Saint Pierre': 'PM',
-    'Wallis': 'WF', 'Cook Islands': 'CK', 'Niue': 'NU', 'Tokelau': 'TK', 'Pitcairn': 'PN',
-    'Saint Helena': 'SH', 'Ascension': 'AC', 'Tristan da Cunha': 'TA', 'Diego Garcia': 'IO',
-    'Antarctica': 'AQ', 'South Georgia': 'GS', 'Svalbard': 'SJ', 'Jan Mayen': 'SJ',
-    'Bouvet Island': 'BV', 'Heard Island': 'HM', 'French Southern Territories': 'TF',
-    'British Indian Ocean Territory': 'IO', 'Christmas Island': 'CX', 'Cocos Islands': 'CC',
-    'Norfolk Island': 'NF', 'Palestine': 'PS', 'Western Sahara': 'EH', 'Sahrawi Arab Democratic Republic': 'EH'
-}
-
-def get_country_code(country_name):
-    """Get ISO country code from country name (e.g., Denmark -> DK)"""
-    if not country_name or country_name == 'Unknown':
-        return 'XX'
-    
-    # Exact match first
-    if country_name in COUNTRY_TO_ISO:
-        return COUNTRY_TO_ISO[country_name]
-    
-    # Partial match
-    country_lower = country_name.lower()
-    for key, code in COUNTRY_TO_ISO.items():
-        if key.lower() == country_lower or key.lower() in country_lower or country_lower in key.lower():
-            return code
-    
-    # Try removing spaces and special characters
-    country_normalized = country_name.replace(' ', '').replace('-', '').replace('_', '').lower()
-    for key, code in COUNTRY_TO_ISO.items():
-        key_normalized = key.replace(' ', '').replace('-', '').replace('_', '').lower()
-        if key_normalized == country_normalized or key_normalized in country_normalized:
-            return code
-    
-    # If not found, try to extract from country name (first 2 uppercase letters)
-    if len(country_name) >= 2:
-        # Try common patterns
-        words = country_name.split()
-        if len(words) > 0:
-            first_word = words[0]
-            if len(first_word) >= 2:
-                return first_word[:2].upper()
-    
-    return 'XX'
-
-def detect_country_from_number(number):
-    """Detect country name from number prefix."""
-    if not number:
-        return None
-
-    digits = ''.join(filter(str.isdigit, str(number)))
-    for code_len in [3, 2, 1]:
-        if len(digits) >= code_len:
-            code = digits[:code_len]
-            if code in COUNTRY_CODES:
-                return COUNTRY_CODES[code]
-    return None
-
-def _sanitize_start_token(value, max_len=48):
-    """Keep only deep-link safe chars."""
-    if not value:
-        return ""
-    return re.sub(r'[^A-Za-z0-9]', '', str(value))[:max_len]
-
-def infer_range_from_number(number):
-    """Best-effort range guess from a phone number."""
-    digits = ''.join(filter(str.isdigit, str(number or "")))
-    if len(digits) >= 7:
-        return f"{digits[:-3]}XXX"
-    return digits or None
-
-def normalize_service_name(service_name):
-    """Normalize service text to internal key."""
-    if not service_name:
-        return None
-
-    normalized = re.sub(r'[^a-z0-9]+', '', str(service_name).lower())
-    if "whatsapp" in normalized:
-        return "whatsapp"
-    if "facebook" in normalized:
-        return "facebook"
-    if "telegram" in normalized:
-        return "telegram"
-    return None
-
-def build_range_start_payload(range_value, service_name=None):
-    """Build /start deep-link payload for range."""
-    range_token = _sanitize_start_token(range_value, max_len=40).upper()
-    if not range_token:
-        return None
-
-    service_token = _sanitize_start_token(service_name, max_len=12).lower()
-    if service_token:
-        return f"rng_{range_token}_{service_token}"
-    return f"rng_{range_token}"
-
-def parse_range_start_payload(payload):
-    """Parse deep-link payload -> (range_value, service_hint)."""
-    if not payload or not payload.startswith("rng_"):
-        return None, None
-
-    rest = payload[4:]
-    if "_" in rest:
-        range_part, service_part = rest.split("_", 1)
-    else:
-        range_part, service_part = rest, ""
-
-    range_value = _sanitize_start_token(range_part, max_len=40).upper()
-    service_hint = _sanitize_start_token(service_part, max_len=12).lower() or None
-
-    if not range_value:
-        return None, None
-
-    return range_value, service_hint
-
-async def build_range_deeplink(context: ContextTypes.DEFAULT_TYPE, range_value, service_name=None):
-    """Build t.me deep link URL for opening bot with range payload."""
-    global bot_username_cache
-
-    payload = build_range_start_payload(range_value, service_name)
-    if not payload:
-        return None
-
-    if not bot_username_cache:
-        try:
-            me = await context.bot.get_me()
-            bot_username_cache = me.username
-        except Exception as e:
-            logger.warning(f"Unable to resolve bot username for range link: {e}")
-            return None
-
-    if not bot_username_cache:
-        return None
-
-    return f"https://t.me/{bot_username_cache}?start={payload}"
-
-async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEFAULT_TYPE, range_value, service_hint=None):
-    """Fetch numbers for a deep-link range and start OTP monitor."""
-    user_id = update.effective_user.id
-    api_client = get_global_api_client()
-    if not api_client:
-        await update.message.reply_text("❌ API connection error. Please try again.")
-        return
-
-    session = get_user_session(user_id)
-    number_count = session.get('number_count', 2) if session else 2
-    base_range = _sanitize_start_token(range_value, max_len=40).upper()
-
-    if len(base_range) < 4:
-        await update.message.reply_text("❌ Invalid range.")
-        return
-
-    # Fast path for range-button links: console ranges often come without XXX.
-    # Try the pattern form first to avoid slow retries on invalid raw prefixes.
-    candidates = [base_range]
-    if 'X' not in base_range:
-        candidates = [f"{base_range}XXX", base_range]
-
-    numbers_data = None
-    selected_range = None
-    for candidate in candidates:
-        response = await run_api_call(api_client.get_multiple_numbers, candidate, candidate, number_count)
-        if response:
-            numbers_data = response
-            selected_range = candidate
-            break
-
-    if not numbers_data:
-        await update.message.reply_text(f"❌ Failed to get numbers for range {base_range}.")
-        return
-
-    numbers_list = []
-    for num_data in numbers_data:
-        number = num_data.get('number', '')
-        if number:
-            numbers_list.append(number)
-
-    if not numbers_list:
-        await update.message.reply_text("❌ No valid numbers received. Please try again.")
-        return
-
-    country_name = detect_country_from_number(numbers_list[0]) or detect_country_from_range(selected_range) or 'Unknown'
-    found_service = (
-        normalize_service_name(service_hint)
-        or normalize_service_name(session.get('service') if session else None)
-        or "whatsapp"
-    )
-
-    keyboard = []
-    for num in numbers_list:
-        keyboard.append([InlineKeyboardButton(
-            f"📱 {num}",
-            api_kwargs={"copy_text": {"text": num}}
-        )])
-
-    # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
-    context.user_data.setdefault('range_mapping', {})
-    change_hash = hashlib.md5(f"{found_service}_{selected_range}".encode()).hexdigest()[:12]
-    context.user_data['range_mapping'][change_hash] = {
-        'service': found_service,
-        'range_id': selected_range,
-        'range_name': selected_range
-    }
-    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    country_flag = get_country_flag(country_name)
-    service_icons = {
-        "whatsapp": "💬",
-        "facebook": "👥",
-        "telegram": "✈️"
-    }
-    service_icon = service_icons.get(found_service, "📱")
-    message_text = (
-        f"{service_icon} {found_service.upper()}\n"
-        f"{country_flag} {country_name}\n"
-        f"📋 Range: {selected_range}\n\n"
-        f"✅ {len(numbers_list)} numbers received:\n\n"
-        "Tap a number to copy it."
-    )
-
-    sent_msg = await update.message.reply_text(
-        message_text,
-        reply_markup=reply_markup
-    )
-
-    update_user_session(
-        user_id,
-        service=found_service,
-        country=country_name,
-        range_id=selected_range,
-        number=','.join(numbers_list),
-        monitoring=1
-    )
-
-    if user_id in user_jobs:
-        user_jobs[user_id].schedule_removal()
-
-    if context.job_queue:
-        job_data = {
-            'user_id': user_id,
-            'numbers': numbers_list,
-            'service': found_service,
-            'range_id': selected_range,
-            'start_time': time.time(),
-            'message_id': sent_msg.message_id
-        }
-        if country_name and country_name != 'Unknown':
-            job_data['country'] = country_name
-
-        job = context.job_queue.run_repeating(
-            monitor_otp,
-            interval=3,
-            first=5,
-            data=job_data
-        )
-        user_jobs[user_id] = job
-
-def sort_numbers_for_ivory_coast(numbers_list, country_name):
-    """
-    Sort numbers for Ivory Coast - prioritize numbers starting with 22507
-    """
-    # Check if this is Ivory Coast
-    ivory_coast_names = ['Ivory Coast', 'Côte d\'Ivoire', 'Cote d\'Ivoire', 'CI']
-    is_ivory_coast = any(name.lower() in str(country_name).lower() for name in ivory_coast_names)
-    
-    if not is_ivory_coast:
-        return numbers_list  # No sorting needed for other countries
-    
     def get_sort_key(number):
         """Return sort key: 0 for 22507 prefix (priority), 1 for others"""
         # Extract digits from number
