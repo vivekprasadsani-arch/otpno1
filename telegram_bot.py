@@ -4,7 +4,6 @@ import time
 import asyncio
 import concurrent.futures
 from datetime import datetime, timedelta, timezone
-from datetime import datetime, timedelta, timezone
 import requests
 import json
 import re
@@ -113,7 +112,13 @@ import hashlib
 import json
 import time
 import base64
-from Crypto.Cipher import AES
+try:
+    from Crypto.Cipher import AES
+except ImportError:
+    try:
+        from Cryptodome.Cipher import AES
+    except ImportError:
+        AES = None
 
 # New API Configuration
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
