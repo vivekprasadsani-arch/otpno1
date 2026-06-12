@@ -113,10 +113,10 @@ import json
 import time
 import base64
 try:
-    from Crypto.Cipher import AES
+    from Cryptodome.Cipher import AES
 except ImportError:
     try:
-        from Cryptodome.Cipher import AES
+        from Crypto.Cipher import AES
     except ImportError:
         AES = None
 
@@ -150,6 +150,8 @@ class WireCodec:
         self.key = hashlib.sha256((prefix + self.sid).encode()).digest()
 
     def encrypt(self, payload_dict):
+        if AES is None:
+            raise ImportError("AES library (pycryptodomex) is not installed correctly.")
         plaintext = json.dumps(payload_dict, separators=(',', ':')).encode()
         nonce = hashlib.sha256(str(time.time()).encode()).digest()[:12]
         cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
@@ -170,7 +172,7 @@ class WireCodec:
         except Exception:
             return None
 
-API_EMAIL = os.getenv("API_EMAIL", "roni797758@gmail.com")
+API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
 
 # Supabase Configuration
@@ -1391,7 +1393,7 @@ def normalize_service_name(service_name):
         return None
 
     normalized = re.sub(r'[^a-z0-9]+', '', str(service_name).lower())
-    if "whatsapp" in normalized:
+    if "whatsapp" in normalized or "alymscintl" in normalized or service_name == "******":
         return "whatsapp"
     if "facebook" in normalized:
         return "facebook"
@@ -1938,9 +1940,10 @@ def build_console_channel_message(log_item):
         "whatsapp": "WhatsApp",
         "facebook": "Facebook",
         "telegram": "Telegram",
-        "******": "WhatsApp"
+        "******": "WhatsApp",
+        "alymscintl": "WhatsApp"
     }.get(service_key, service_raw)
-    if service_raw == "******": service_display = "WhatsApp"
+    if service_raw in ["******", "alymscintl"]: service_display = "WhatsApp"
 
     return f"{country_flag} #{country_code} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
 
@@ -4274,7 +4277,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             sms_content = str(log_item.get('sms') or '')
             service = str(log_item.get('app_name') or '')
-            if service == "******":
+            if service in ["******", "alymscintl"]:
                 service = "WhatsApp"
             service_key = normalize_service_name(service)
 
