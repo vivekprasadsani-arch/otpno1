@@ -46,7 +46,15 @@ SERVICE_APP_IDS = {
     "telegram": "Telegram",
 }
 CONSOLE_FORWARD_SERVICE_KEYS = ["whatsapp", "facebook", "telegram", "others", "alymscintl", "******"]
+
+# Global locks and state
 console_lock = threading.Lock()
+console_bootstrapped = False
+forwarded_console_ids = set()
+forwarded_console_order = []
+MAX_FORWARDED_CONSOLE_IDS = 5000
+user_jobs = {}
+bot_username_cache = None
 
 try:
     from curl_cffi import requests as curl_requests
@@ -78,6 +86,15 @@ WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
 UPDATE_CONCURRENCY = int(os.getenv("UPDATE_CONCURRENCY", "128"))
 
 def b62_encode(data):
+    base = len(WIRE_ALPHABET)
+    res = int.from_bytes(data, 'big')
+    if res == 0: return WIRE_ALPHABET[0]
+    out = ""
+    while res > 0:
+        res, rem = divmod(res, base)
+        out = WIRE_ALPHABET[rem] + out
+    return out
+
     base = len(WIRE_ALPHABET)
     res = int.from_bytes(data, 'big')
     if res == 0: return WIRE_ALPHABET[0]
