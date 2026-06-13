@@ -382,6 +382,10 @@ forwarded_console_ids = set()
 forwarded_console_order = []
 MAX_FORWARDED_CONSOLE_IDS = 5000
 bot_username_cache = None
+CONSOLE_MONITOR_INTERVAL = int(os.getenv("CONSOLE_MONITOR_INTERVAL", "3"))
+CONSOLE_MAX_FORWARDS_PER_CYCLE = int(os.getenv("CONSOLE_MAX_FORWARDS_PER_CYCLE", "6"))
+CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
+CONSOLE_FORWARD_SERVICE_KEYS = {"whatsapp", "telegram"}
 
 def parse_time_ago(time_str):
     try:
