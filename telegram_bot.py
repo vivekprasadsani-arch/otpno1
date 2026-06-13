@@ -25,6 +25,20 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Global Configuration
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    # Use fallback if provided, but Render should have it
+    BOT_TOKEN = "8773779256:AAGSjvSe82hee6eTzFMo_OZ2HW6umFq3Qcs"
+
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
+OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))
+
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbm5xdmZvYWpxc2ZkeXVsb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzE1MjcsImV4cCI6MjA3OTc0NzUyN30.dFniV0odaT-7bjs5iQVFQ-N23oqTGMAgQKjswhaHSP4")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 try:
     from curl_cffi import requests as curl_requests
 except ImportError:
