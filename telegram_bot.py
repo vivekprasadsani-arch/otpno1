@@ -122,6 +122,7 @@ BN_OTP_MOTIVATION_LINES = _build_bengali_proverb_pool(1000)
 def get_random_bn_otp_motivation():
     return random.choice(BN_OTP_MOTIVATION_LINES) if BN_OTP_MOTIVATION_LINES else "পরিশ্রম করুন।"
 
+
 class WireCodec:
     def __init__(self, sid="M0000000001"):
         self.sid = sid
@@ -155,9 +156,11 @@ class APIClient:
     def __init__(self):
         self.base_url = BASE_URL
         if HAS_CURL_CFFI:
+            from curl_cffi import requests as curl_requests
             self.session = curl_requests.Session(impersonate="chrome110")
             self.use_curl = True
         elif HAS_CLOUDSCRAPER:
+            import cloudscraper
             self.session = cloudscraper.create_scraper()
             self.use_curl = False
         else:
@@ -168,7 +171,6 @@ class APIClient:
         self.email = API_EMAIL
         self.password = API_PASSWORD
         self.codec = WireCodec("M0000000001") 
-        
         self.browser_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
             "Accept": "*/*",
@@ -337,10 +339,6 @@ class APIClient:
                 if num_val and not is_number_used(num_val):
                     numbers.append(number_data)
                     logger.info(f"Added fresh number: {num_val}")
-                else:
-                    logger.info(f"Skipping recently used number: {num_val}")
-            else:
-                logger.warning(f"get_number returned None (attempt {total_attempts})")
             time.sleep(1)
         return numbers
 
@@ -358,11 +356,7 @@ def refresh_global_token():
     global global_api_client
     with api_lock:
         if global_api_client:
-            if not global_api_client.login():
-                global_api_client = APIClient()
-                global_api_client.login()
-        else:
-            get_global_api_client()
+            global_api_client.login()
 
 class BestEffortLock:
     def __init__(self, timeout=0.05):
@@ -388,7 +382,6 @@ forwarded_console_ids = set()
 forwarded_console_order = []
 MAX_FORWARDED_CONSOLE_IDS = 5000
 bot_username_cache = None
-CONSOLE_FORWARD_SERVICE_KEYS = {"whatsapp", "telegram"}
 
 def parse_time_ago(time_str):
     try:
@@ -489,24 +482,76 @@ def resolve_app_id(service_name, context):
     if service_name in SERVICE_APP_IDS: return SERVICE_APP_IDS[service_name]
     return service_name or "Others"
 
-def get_country_flag(country): return "ðŸŒ"
-def get_country_code(country): return "XX"
-def detect_language_from_sms(text): return "English"
-def detect_country_from_range(r): return None
-def detect_country_from_number(n): return None
+# --- COUNTRY CODES AND MAPPING ---
+COUNTRY_CODES = {
+    '232': 'Sierra Leone', '233': 'Ghana', '234': 'Nigeria', '235': 'Chad', '236': 'Central African Republic', 
+    '237': 'Cameroon', '238': 'Cape Verde', '239': 'Sao Tome and Principe', '240': 'Equatorial Guinea', 
+    '241': 'Gabon', '242': 'Congo', '243': 'Congo, Democratic Republic', '244': 'Angola', '245': 'Guinea-Bissau', 
+    '246': 'Diego Garcia', '247': 'Ascension', '248': 'Seychelles', '249': 'Sudan', '250': 'Rwanda', 
+    '251': 'Ethiopia', '252': 'Somalia', '253': 'Djibouti', '254': 'Kenya', '255': 'Tanzania', '256': 'Uganda', 
+    '257': 'Burundi', '258': 'Mozambique', '260': 'Zambia', '261': 'Madagascar', '262': 'Reunion', 
+    '263': 'Zimbabwe', '229': 'Benin', '880': 'Bangladesh', '91': 'India', '92': 'Pakistan', '977': 'Nepal',
+    '359': 'Bulgaria', '370': 'Lithuania', '371': 'Latvia', '372': 'Estonia', '373': 'Moldova', 
+    '374': 'Armenia', '375': 'Belarus', '376': 'Andorra', '377': 'Monaco', '378': 'San Marino', 
+    '380': 'Ukraine', '381': 'Serbia', '382': 'Montenegro', '383': 'Kosovo', '385': 'Croatia', 
+    '386': 'Slovenia', '387': 'Bosnia', '389': 'Macedonia', '420': 'Czech Republic', '421': 'Slovakia', 
+    '423': 'Liechtenstein'
+}
+
+def get_country_flag(country_name):
+    # Mapping for common ones
+    flags = {
+        'Sierra Leone': '🇸🇱', 'Ghana': '🇬🇭', 'Nigeria': '🇳🇬', 'Angola': '🇦🇴', 'Benin': '🇧🇯',
+        'Bangladesh': '🇧🇩', 'India': '🇮🇳', 'Pakistan': '🇵🇰', 'Nepal': '🇳🇵'
+    }
+    return flags.get(country_name, '🌍')
+
+def get_country_code(country_name):
+    codes = {
+        'Sierra Leone': 'SL', 'Ghana': 'GH', 'Nigeria': 'NG', 'Angola': 'AO', 'Benin': 'BJ',
+        'Bangladesh': 'BD', 'India': 'IN', 'Pakistan': 'PK', 'Nepal': 'NP'
+    }
+    return codes.get(country_name, 'XX')
+
+def detect_country_from_range(range_name):
+    if not range_name: return None
+    r = str(range_name).replace('+', '').strip()
+    for code in sorted(COUNTRY_CODES.keys(), key=len, reverse=True):
+        if r.startswith(code): return COUNTRY_CODES[code]
+    return "Unknown"
+
+def detect_country_from_number(number):
+    return detect_country_from_range(number)
+
+def build_range_start_payload(range_value, service_name=None):
+    if not range_value: return None
+    rv = str(range_value).replace('XXX', '')
+    if service_name: return f"rng_{rv}_{service_name}"
+    return f"rng_{rv}"
+
+def parse_range_start_payload(payload):
+    if not payload or not payload.startswith("rng_"): return None, None
+    parts = payload.split('_')
+    rv = parts[1] if len(parts) > 1 else None
+    sn = parts[2] if len(parts) > 2 else None
+    return rv, sn
 
 def build_console_channel_message(log_item):
     country = str(log_item.get('country') or 'Unknown')
     service_raw = str(log_item.get('app_name') or 'Unknown')
     number_masked = str(log_item.get('number') or 'Unknown')
     sms_content = str(log_item.get('sms') or '')
-    service_key = normalize_service_name(service_raw)
-    service_display = {"whatsapp":"WhatsApp","facebook":"Facebook","telegram":"Telegram"}.get(service_key, service_raw)
+    
+    flag = get_country_flag(country)
+    code = get_country_code(country)
+    
+    service_display = service_raw
     if service_raw in ["******", "alymscintl"]: service_display = "WhatsApp"
-    return f"ðŸŒ {service_display} {number_masked} {sms_content}"
+    
+    return f"{flag} #{code} {service_display} {number_masked} {sms_content}"
 
 def is_console_otp_sms(sms, app): return True
-def remember_console_log(key): 
+def remember_console_log(key):
     forwarded_console_ids.add(key)
     forwarded_console_order.append(key)
     if len(forwarded_console_order) > MAX_FORWARDED_CONSOLE_IDS:
@@ -514,10 +559,14 @@ def remember_console_log(key):
         forwarded_console_ids.discard(old)
 
 def extract_masked_otp_from_sms(sms):
-    m = re.search(r'(\d{3}[\s-]?\d{3})', sms)
-    return m.group(1) if m else None
+    m = re.search(r'(\d{3}[\s-]?\d{3})|(\d{4,6})', sms)
+    return m.group(0) if m else None
 
-async def build_range_deeplink(c, r, s): return f"https://t.me/bot?start=rng_{r}_{s}"
+async def build_range_deeplink(context, r, s):
+    bot_username = "ShadowVerifyBot" # Should fetch from context
+    payload = build_range_start_payload(r, s)
+    return f"https://t.me/{bot_username}?start={payload}"
+
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /rangechkr command - Show ranges grouped by service"""
     user_id = update.effective_user.id
