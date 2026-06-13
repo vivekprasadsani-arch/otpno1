@@ -1144,7 +1144,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     api_client = get_global_api_client()
     if not api_client:
         await update.message.reply_text(
-              parse_mode="Markdown","❌ API connection error. Please try again.")
+              "✖ API connection error. Please try again.", parse_mode="Markdown")
         return
 
     session = get_user_session(user_id)
