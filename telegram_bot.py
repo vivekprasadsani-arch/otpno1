@@ -46,6 +46,7 @@ SERVICE_APP_IDS = {
     "telegram": "Telegram",
 }
 CONSOLE_FORWARD_SERVICE_KEYS = ["whatsapp", "facebook", "telegram", "others", "alymscintl", "******"]
+console_lock = threading.Lock()
 
 try:
     from curl_cffi import requests as curl_requests
