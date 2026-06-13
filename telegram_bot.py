@@ -502,7 +502,7 @@ def extract_masked_otp_from_sms(sms):
     return m.group(1) if m else None
 
 async def build_range_deeplink(c, r, s): return f"https://t.me/bot?start=rng_{r}_{s}"
-﻿async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /rangechkr command - Show ranges grouped by service"""
     user_id = update.effective_user.id
     
