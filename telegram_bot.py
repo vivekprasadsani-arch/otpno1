@@ -1,78 +1,43 @@
 import os
-import sys
-import json
-import time
-import base64
-import hashlib
-import re
-import html
-import logging
-import asyncio
 import threading
-import unicodedata
+import time
+import asyncio
 import concurrent.futures
-import math
-import traceback
+from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
+import requests
+import codec
+import json
+import re
+import hashlib
+import html
+import unicodedata
 import random
 from functools import partial
-from datetime import datetime, timedelta, timezone
-
-import requests
-from flask import Flask
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.error import Conflict
+import logging
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from flask import Flask
 
 # Load environment variables
 load_dotenv()
 
-# Global Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    BOT_TOKEN = "8773779256:AAGSjvSe82hee6eTzFMo_OZ2HW6umFq3Qcs"
+# Try to import cloudscraper for Cloudflare bypass
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
 
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
-OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))
-CONSOLE_MONITOR_INTERVAL = int(os.getenv("CONSOLE_MONITOR_INTERVAL", "3"))
-CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
-
-# Supabase Configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbm5xdmZvYWpxc2ZkeXVsb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzE1MjcsImV4cCI6MjA3OTc0NzUyN30.dFniV0odaT-7bjs5iQVFQ-N23oqTGMAgQKjswhaHSP4")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Service Configuration
-SERVICE_APP_IDS = {
-    "whatsapp": "WhatsApp",
-    "facebook": "Facebook",
-    "telegram": "Telegram",
-}
-CONSOLE_FORWARD_SERVICE_KEYS = ["whatsapp", "facebook", "telegram", "others", "alymscintl", "******"]
-
-# Global locks and state
-console_lock = threading.Lock()
-console_bootstrapped = False
-forwarded_console_ids = set()
-forwarded_console_order = []
-MAX_FORWARDED_CONSOLE_IDS = 5000
-user_jobs = {}
-bot_username_cache = None
-
+# Try to import curl_cffi for Cloudflare bypass (better than cloudscraper)
 try:
     from curl_cffi import requests as curl_requests
+    HAS_CURL_CFFI = True
 except ImportError:
-    curl_requests = None
-
-try:
-    from Cryptodome.Cipher import AES
-except ImportError:
-    try:
-        from Crypto.Cipher import AES
-    except ImportError:
-        AES = None
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, JobQueue
-from telegram.error import Conflict
+    HAS_CURL_CFFI = False
 
 # Configure logging
 logging.basicConfig(
@@ -81,262 +46,142 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constants
-BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
-WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
-UPDATE_CONCURRENCY = int(os.getenv("UPDATE_CONCURRENCY", "128"))
 
-def b62_encode(data):
-    base = len(WIRE_ALPHABET)
-    res = int.from_bytes(data, 'big')
-    if res == 0: return WIRE_ALPHABET[0]
-    out = ""
-    while res > 0:
-        res, rem = divmod(res, base)
-        out = WIRE_ALPHABET[rem] + out
-    return out
+def _build_bengali_proverb_pool(target_size=1000):
+    """Build a deterministic pool of Bengali proverb-style motivation lines."""
+    starters = [
+        "ধৈর্য ধরলে", "সততা রাখলে", "পরিশ্রম করলে", "সময়কে সম্মান করলে", "ছোট পদক্ষেপ নিলে",
+        "লক্ষ্য ঠিক রাখলে", "মনোযোগ ধরে রাখলে", "নিয়মিত চেষ্টা করলে", "বিশ্বাস ধরে রাখলে", "ভুল থেকে শিখলে",
+        "সকালে শুরু করলে", "দৃঢ় থাকলে", "শৃঙ্খলা মানলে", "নিজেকে গুছিয়ে নিলে", "হাল না ছাড়লে",
+        "সমস্যাকে চ্যালেঞ্জ ভাবলে", "ভয়কে নিয়ন্ত্রণ করলে", "শুরুটা করে ফেললে", "অভ্যাস ঠিক করলে", "স্বপ্নে কাজ জুড়লে",
+        "উদ্যম বজায় রাখলে", "চিন্তা পরিষ্কার রাখলে", "কথার চেয়ে কাজ বাড়ালে", "অগ্রাধিকার ঠিক করলে", "সাহস নিয়ে এগোলে"
+    ]
+    middles = [
+        "সাফল্য একদিন দরজায় কড়া নাড়বেই", "ভাগ্যও পরিশ্রমীর পাশে দাঁড়ায়", "প্রতিদিনের অগ্রগতি বড় ফল আনে",
+        "অসম্ভবও ধীরে ধীরে সম্ভব হয়", "কষ্টের পরেই স্বস্তি আসে", "ভালো ফল সময় নিয়ে আসে",
+        "অন্ধকারের পরেই আলো আসে", "অভ্যাসই মানুষকে এগিয়ে দেয়", "চেষ্টা কখনো ব্যর্থ যায় না",
+        "নিজের ওপর ভরসাই সবচেয়ে বড় শক্তি", "ধীর গতি হলেও পথ ঠিক থাকে", "পতনের ভেতরেই শেখা থাকে",
+        "নিরবচ্ছিন্ন চেষ্টাই পার্থক্য গড়ে", "সময়মতো কাজই শান্তি দেয়", "সংগ্রামই চরিত্র গড়ে",
+        "মাটিতে থাকা মানুষই উঁচুতে ওঠে", "ভুল মানা মানুষ দ্রুত শেখে", "সৎ পথে দেরি হলেও জয় আসে",
+        "আজকের কষ্টই আগামীর সম্পদ", "এক ধাপ এগোলেই পথ ছোট হয়", "নীরব পরিশ্রম সবচেয়ে জোরে কথা বলে",
+        "চাপের মাঝেই দক্ষতা তৈরি হয়", "আত্মবিশ্বাস থাকলে পথ বের হয়", "শুরু ছোট হলেও শেষ বড় হতে পারে",
+        "যে থামে না, সে হারেও না"
+    ]
+    endings = [
+        "তাই আজও এগিয়ে যাও", "তাই নিজের গতিতে চলতে থাকো", "তাই কাজটাই ধরে রাখো",
+        "তাই মন খারাপ নয়, আবার শুরু করো", "তাই লক্ষ্য থেকে চোখ সরিও না", "তাই আজকের কাজ আজই শেষ করো",
+        "তাই হাল না ছেড়ে সামনে তাকাও", "তাই তোমার সময় অবশ্যই আসবে", "তাই চেষ্টা চালিয়ে যাও",
+        "তাই অল্প অল্প করে জিততে থাকো", "তাই নিজেকে আজই আরও ভালো করো", "তাই প্রতিদিন ১% উন্নতি করো",
+        "তাই স্থির থাকো, ফল আসবেই", "তাই সংকল্প শক্ত রাখো", "তাই পরিশ্রমকে সঙ্গী বানাও",
+        "তাই শৃঙ্খলাকেই শক্তি বানাও", "তাই বিশ্বাস রেখো, জয় হবে", "তাই কাজই তোমার পরিচয় হোক",
+        "তাই নিজের যাত্রাকে সম্মান দাও", "তাই এগোনোর গল্পটা থামিও না"
+    ]
 
-    base = len(WIRE_ALPHABET)
-    res = int.from_bytes(data, 'big')
-    if res == 0: return WIRE_ALPHABET[0]
-    out = ""
-    while res > 0:
-        res, rem = divmod(res, base)
-        out = WIRE_ALPHABET[rem] + out
-    return out
+    lines = []
+    for a in starters:
+        for b in middles:
+            for c in endings:
+                lines.append(f"{a}, {b} - {c}।")
 
-def b62_decode(data):
-    base = len(WIRE_ALPHABET)
-    res = 0
-    for char in data:
-        res = res * base + WIRE_ALPHABET.index(char)
-    byte_len = int(len(data) * math.log(base) / math.log(256))
-    actual_len = (res.bit_length() + 7) // 8
-    return res.to_bytes(max(actual_len, byte_len), 'big')
+    rng = random.Random(20260227)
+    rng.shuffle(lines)
+    return lines[:target_size]
 
-class WireCodec:
-    def __init__(self, sid="M0000000001"):
-        self.sid = sid
-        prefix = "AES-GCM_KEY_"
-        self.key = hashlib.sha256((prefix + self.sid).encode()).digest()
 
-    def encrypt(self, payload_dict):
-        if AES is None: raise ImportError("Crypto library not found.")
-        plaintext = json.dumps(payload_dict, separators=(',', ':')).encode()
-        nonce = hashlib.sha256(str(time.time()).encode()).digest()[:12]
-        cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
-        ciphertext, tag = cipher.encrypt_and_digest(plaintext)
-        return b62_encode(nonce + ciphertext + tag)
+BN_OTP_MOTIVATION_LINES = _build_bengali_proverb_pool(1000)
 
-    def decrypt(self, enc_data):
-        if not enc_data: return None
-        try:
-            decoded = b62_decode(enc_data)
-            if len(decoded) < 28: return None
-            nonce = decoded[:12]
-            ciphertext = decoded[12:-16]
-            tag = decoded[-16:]
-            cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
-            plaintext = cipher.decrypt_and_verify(ciphertext, tag)
-            return json.loads(plaintext)
-        except Exception: return None
 
-class APIClient:
-    def __init__(self):
-        self.base_url = BASE_URL
-        self.session = curl_requests.Session(impersonate="chrome110") if curl_requests else requests.Session()
-        self.auth_token = None
-        self.email = os.getenv("API_EMAIL", "roni791158@gmail.com")
-        self.password = os.getenv("API_PASSWORD", "53561106@Roni")
-        self.codec = WireCodec("M0000000001")
-        self.browser_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Language": "en-GB,en;q=0.9",
-            "Content-Type": "text/plain; charset=utf-8",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        self._ranges_cache = {}
+def get_random_bn_otp_motivation():
+    if not BN_OTP_MOTIVATION_LINES:
+        return "পরিশ্রমের ফল একদিন অবশ্যই আসে।"
+    return random.choice(BN_OTP_MOTIVATION_LINES)
+
+# Try to import cloudscraper for Cloudflare bypass
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
+
+# Bot Configuration (from environment variables only - no default value)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is required. Please set it in Render environment variables.")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
+OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))  # Channel ID for forwarding OTP messages
+
+# API Configuration (from otp_tool.py)
+BASE_URL = "https://stexsms.com"
+API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
+API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
+API_KEY = os.getenv("API_KEY", "MXS47FLFX0U")
+BASE_API_URL = f"https://api.2oo9.cloud/{API_KEY}/tness"
+
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sgnnqvfoajqsfdyulolm.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbm5xdmZvYWpxc2ZkeXVsb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzE1MjcsImV4cCI6MjA3OTc0NzUyN30.dFniV0odaT-7bjs5iQVFQ-N23oqTGMAgQKjswhaHSP4")
+
+# Supabase Database setup
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Service → appId mapping (known primary services)
+SERVICE_APP_IDS = {
+    "whatsapp": "WhatsApp",
+    "facebook": "Facebook",
+    "telegram": "Telegram",
+}
+
+def init_database():
+    """Initialize Supabase database (tables should be created manually via SQL)"""
+    try:
+        # Test connection
+        result = supabase.table('users').select('user_id').limit(1).execute()
+        logger.info("✅ Supabase connection successful")
+    except Exception as e:
+        logger.warning(f"⚠️ Supabase connection test failed (tables may not exist yet): {e}")
+
+# Initialize database on import
+init_database()
+
+class BestEffortLock:
+    """Non-blocking-ish lock to avoid freezing the event loop under contention."""
+    def __init__(self, timeout=0.05):
         self._lock = threading.Lock()
+        self._timeout = timeout
+        self._acquired = False
 
-    def _get_sid_from_jwt(self, token):
+    def __enter__(self):
         try:
-            parts = token.split('.')
-            if len(parts) < 2: return None
-            payload_b64 = parts[1]
-            payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
-            data = json.loads(base64.b64decode(payload_b64).decode())
-            return data.get('sid')
-        except Exception: return None
+            self._acquired = self._lock.acquire(timeout=self._timeout)
+        except Exception:
+            self._acquired = False
+        return self
 
-    def _api_call(self, method, endpoint, payload=None, retry_login=True):
-        if not self.auth_token and endpoint != "/@auth/login":
-            if not self.login(): return None
-        headers = self.browser_headers.copy()
-        if self.auth_token: headers["mauth"] = self.auth_token
-        data = self.codec.encrypt(payload) if payload is not None else None
-        try:
-            url = f"{self.base_url}{endpoint}"
-            if method.upper() == "POST":
-                resp = self.session.post(url, data=data, headers=headers, timeout=15)
-            else:
-                resp = self.session.get(url, headers=headers, timeout=15)
-            if resp.status_code in [401, 403]:
-                if retry_login:
-                    self.auth_token = None
-                    if self.login(): return self._api_call(method, endpoint, payload, False)
-                return None
-            if resp.status_code == 200:
-                dec = self.codec.decrypt(resp.text)
-                if dec: return dec
-                try: return resp.json()
-                except: return None
-            return None
-        except Exception as e:
-            logger.error(f"API Error {endpoint}: {e}")
-            return None
-
-    def login(self):
-        with self._lock:
+    def __exit__(self, exc_type, exc, tb):
+        if self._acquired:
             try:
-                logger.info(f"Attempting login for {self.email}...")
-                self.codec = WireCodec("M0000000001")
-                payload = {"email": self.email, "password": self.password, "remember": True}
-                data = self._api_call("POST", "/@auth/login", payload, False)
-                if not data:
-                    logger.error("Login failed: No response data from API.")
-                    return False
-                if data.get('meta', {}).get('code') == 200:
-                    token = data['data'].get('session_token')
-                    if token:
-                        self.auth_token = token
-                        sid = self._get_sid_from_jwt(token)
-                        if sid: self.codec = WireCodec(sid)
-                        logger.info(f"Login successful. SID: {sid}")
-                        return True
-                return False
-            except Exception as e:
-                logger.error(f"Login exception: {e}\n{traceback.format_exc()}")
-                return False
+                self._lock.release()
+            except Exception:
+                pass
+        self._acquired = False
+        return False
 
-    def get_console_logs(self):
-        try:
-            data = self._api_call("GET", "/@dashboard/dialer/console/info")
-            if data and 'data' in data: return data['data'].get('logs', [])
-            return []
-        except Exception: return []
+# Global locks for thread safety
+db_lock = BestEffortLock(timeout=0.05)
+user_jobs = {}  # Store latest monitoring job per user (older jobs may still run)
+console_lock = threading.Lock()
+console_bootstrapped = False
+forwarded_console_ids = set()
+forwarded_console_order = []
+MAX_FORWARDED_CONSOLE_IDS = 5000
+bot_username_cache = None
+CONSOLE_MONITOR_INTERVAL = int(os.getenv("CONSOLE_MONITOR_INTERVAL", "3"))
+CONSOLE_MAX_FORWARDS_PER_CYCLE = int(os.getenv("CONSOLE_MAX_FORWARDS_PER_CYCLE", "6"))
+CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
+# Console stream -> OTP channel forwarding is limited to these services for now.
+CONSOLE_FORWARD_SERVICE_KEYS = {"whatsapp", "telegram"}
 
-    def _normalize_range_token(self, value):
-        if value is None: return ""
-        return re.sub(r'[^0-9Xx]', '', str(value)).upper()
-
-    def get_number(self, range_id):
-        try:
-            normalized = self._normalize_range_token(range_id)
-            if not normalized: return None
-            range_for_api = normalized if 'X' in normalized else f"{normalized}XXX"
-            data = self._api_call("POST", "/@dashboard/dialer/getnum/request", {"range": range_for_api})        
-            if (not data or data.get('meta', {}).get('code') != 200) and normalized.isdigit():
-                data = self._api_call("POST", "/@dashboard/dialer/getnum/request", {"range_id": normalized})    
-            if data and data.get('meta', {}).get('code') == 200:
-                number = data['data'].get('number') or data['data'].get('copy')
-                if number:
-                    return {'number': number, 'range': range_for_api, 'country_code': data['data'].get('country_code', ''), 'status': 'pending'}
-            return None
-        except Exception: return None
-
-    def check_otp_batch(self, numbers):
-        try:
-            data = self._api_call("GET", "/@dashboard/dialer/getnum/list?page=1")
-            result = {}
-            if data and 'data' in data and data['data']:
-                numbers_list = data['data'].get('numbers', [])
-                if numbers_list:
-                    target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}        
-                    target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
-                    for num_obj in numbers_list:
-                        api_num = num_obj.get('number', '').replace('+', '').strip()
-                        msg = num_obj.get('message') or num_obj.get('otp', '')
-                        if msg: num_obj['sms_content'] = msg
-                        target_num = target_map_exact.get(api_num) or target_map_last9.get(api_num[-9:])        
-                        if target_num: result[target_num] = num_obj
-            return result
-        except Exception: return {}
-
-    def get_ranges(self, app_id, max_retries=3, keyword=""):
-        try:
-            app_id_norm = str(app_id or "").strip().lower()
-            cache_key = f"ranges::{app_id_norm}::{keyword}"
-            now_ts = time.time()
-            if cache_key in self._ranges_cache:
-                entry = self._ranges_cache[cache_key]
-                if now_ts - entry['timestamp'] < 60: return entry['data']
-
-            primary_map = {"whatsapp": "verifyed-access-whatsapp", "facebook": "verifyed-access-facebook", "telegram": "verifyed-access-telegram"}
-            target_app_id = primary_map.get(app_id_norm, app_id)
-            endpoint = f"/@dashboard/dialer/ranges?app_id={target_app_id}"
-            if keyword: endpoint += f"&keyword={keyword}"
-            data = self._api_call("GET", endpoint)
-            
-            ranges = []
-            if data and 'data' in data:
-                raw_ranges = data['data'] if isinstance(data['data'], list) else data['data'].get('ranges', [])
-                for r in raw_ranges:
-                    ranges.append({'id': r.get('id'), 'range_id': r.get('id'), 'name': r.get('name'), 'pattern': r.get('pattern'), 'country': r.get('country'), 'cantryName': r.get('country'), 'service': r.get('app_name') or r.get('service'), 'price': r.get('price'), 'datetime': 'Active'})
-            
-            if not ranges or app_id_norm == "others":
-                logs = self.get_console_logs()
-                console_ranges = self._build_ranges_from_console_logs(logs)
-                for r in console_ranges:
-                    service_norm = normalize_service_name(r.get('service'))
-                    if app_id_norm in ["whatsapp", "facebook", "telegram"]:
-                        if service_norm == app_id_norm: ranges.append(r)
-                    elif app_id_norm == "others":
-                        if service_norm not in ["whatsapp", "facebook", "telegram"]: ranges.append(r)
-                    else:
-                        if app_id_norm in str(r.get('service')).lower(): ranges.append(r)
-
-            self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': ranges}
-            return ranges
-        except Exception as e:
-            logger.error(f"Error in get_ranges: {e}")
-            return []
-
-    def _build_ranges_from_console_logs(self, logs):
-        if not isinstance(logs, list) or not logs: return []
-        range_map = {}
-        for idx, item in enumerate(logs):
-            app_name_raw = str(item.get('app_name') or "").strip()
-            if not app_name_raw: continue
-            if app_name_raw in ["******", "alymscintl"]: app_name_raw = "WhatsApp"
-            service_key = normalize_service_name(app_name_raw)
-            range_token = self._normalize_range_token(item.get('range') or item.get('number'))
-            if not range_token or len(re.sub(r'[^0-9]', '', range_token)) < 4: continue
-            range_for_api = range_token if 'X' in range_token else f"{range_token}XXX"
-            country = str(item.get('country') or "Unknown")
-            obj = {'id': range_for_api, 'range_id': range_for_api, 'name': range_for_api, 'pattern': range_for_api, 'country': country, 'cantryName': country, 'service': app_name_raw, 'operator': str(item.get('carrier') or "Unknown").strip(), 'datetime': f"{idx} mins ago"}
-            map_key = (service_key, range_for_api)
-            if map_key not in range_map: range_map[map_key] = obj
-        return list(range_map.values())
-
-    def get_applications(self, max_retries=3):
-        return [{'id': 'whatsapp', 'name': 'WhatsApp'}, {'id': 'facebook', 'name': 'Facebook'}, {'id': 'telegram', 'name': 'Telegram'}, {'id': 'others', 'name': 'Others'}]
-
-    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
-        numbers = []
-        total_attempts = 0
-        while len(numbers) < count and total_attempts < count * 10:
-            total_attempts += 1
-            number_data = self.get_number(range_name or range_id)
-            if number_data and number_data.get('number') and not is_number_used(number_data.get('number')):
-                numbers.append(number_data)
-            time.sleep(1)
-        return numbers
-
-async def run_api_call(func, *args, **kwargs):
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        return await loop.run_in_executor(pool, lambda: func(*args, **kwargs))
+# Global API client - single session for all users
 global_api_client = None
 api_lock = threading.Lock()
 API_IO_WORKERS = int(os.getenv("API_IO_WORKERS", "120"))
@@ -657,6 +502,643 @@ def resolve_app_id(service_name, context):
     return custom_services.get(service_name) or service_name
 
 # API Functions (from otp_tool.py)
+class APIClient:
+    def __init__(self):
+        self.base_url = BASE_URL
+        self.base_api_url = BASE_API_URL
+        # Use curl_cffi if available (best for Cloudflare bypass)
+        if HAS_CURL_CFFI:
+            self.session = curl_requests.Session(impersonate="chrome110")
+            self.use_curl = True
+            logger.info("Using curl_cffi for Cloudflare bypass")
+        elif HAS_CLOUDSCRAPER:
+            self.session = cloudscraper.create_scraper()
+            self.use_curl = False
+            logger.info("Using cloudscraper for Cloudflare bypass")
+        else:
+            self.session = requests.Session()
+            self.use_curl = False
+            logger.warning("No Cloudflare bypass available, using standard requests")
+        self.auth_token = None
+        self.email = API_EMAIL
+        self.password = API_PASSWORD
+        # Browser-like headers to avoid session expiration and Cloudflare - EXACT same as otp_tool.py
+        self.browser_headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Mobile Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "en-GB,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Origin": self.base_url,
+            "Referer": f"{self.base_url}/dashboard/getnum",
+            "X-Requested-With": "XMLHttpRequest",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty"
+        }
+        self._ranges_cache = {}  # Cache structure: {app_id: {'timestamp': time.time(), 'data': [...]}}
+        self._cache_duration = int(os.getenv("RANGES_CACHE_SECONDS", "30"))
+        
+        # Internal lock for thread safety (login/token refresh)
+        self._lock = threading.Lock()
+
+        # Load bootstrap ranges
+        self.bootstrap_ranges = []
+        try:
+            dir_path = os.path.dirname(os.path.abspath(__file__))
+            json_path = os.path.join(dir_path, "har_ranges.json")
+            if os.path.exists(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    self.bootstrap_ranges = json.load(f)
+                logger.info(f"Loaded {len(self.bootstrap_ranges)} bootstrap ranges from har_ranges.json")
+        except Exception as e:
+            logger.error(f"Failed to load bootstrap ranges: {e}")
+
+
+    def _get_decrypt_key(self):
+        """Extract the sid from JWT token to use as AES key, or return fallback key."""
+        if not self.auth_token:
+            return "M0000000001"
+        try:
+            parts = self.auth_token.split('.')
+            if len(parts) >= 2:
+                import base64
+                import json
+                payload_b64 = parts[1]
+                payload_b64 += '=' * (-len(payload_b64) % 4)
+                payload_bytes = base64.urlsafe_b64decode(payload_b64)
+                payload_dict = json.loads(payload_bytes.decode('utf-8'))
+                sid = payload_dict.get("sid")
+                if sid:
+                    return sid
+        except Exception as e:
+            logger.error(f"Error extracting sid from token: {e}")
+        return "M0000000001"
+    
+    def login(self):
+        """Login to API - Thread-safe"""
+        with self._lock:
+            try:
+                login_headers = {
+                    **self.browser_headers,
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Referer": f"{self.base_url}/"
+                }
+                login_url = f"{self.base_api_url}/@auth/login"
+                
+                logger.info(f"Attempting login to {login_url}")
+                payload = {"email": self.email, "password": self.password}
+                
+                encrypted_payload = codec.encrypt(payload, "M0000000001")
+                
+                login_resp = self.session.post(
+                    login_url,
+                    data=encrypted_payload,
+                    headers=login_headers,
+                    timeout=15
+                )
+                
+                if login_resp.status_code in [200, 201]:
+                    decrypted_text = codec.decrypt(login_resp.text.strip(), "M0000000001")
+                    login_data = decrypted_text if isinstance(decrypted_text, dict) else json.loads(decrypted_text)
+                    
+                    token = None
+                    if 'data' in login_data and 'session_token' in login_data['data']:
+                        token = login_data['data']['session_token']
+                    elif 'token' in login_data:
+                        token = login_data['token']
+                    elif 'session_token' in login_data:
+                        token = login_data['session_token']
+                    
+                    if token:
+                        self.auth_token = token
+                        self.session.headers.update({"mauth": self.auth_token})
+                        logger.info("Login successful")
+                        return True
+                    else:
+                        logger.error(f"Login response missing token: {login_data}")
+                else:
+                    logger.error(f"Login failed with status {login_resp.status_code}: {login_resp.text[:200]}")
+                return False
+            except Exception as e:
+                logger.error(f"Login error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return False
+    
+    def _normalize_range_token(self, value):
+        """Normalize any range-like token, preserving letters and underscores for IDs like b_42."""
+        if value is None:
+            return ""
+        return re.sub(r'[^A-Za-z0-9_\-]', '', str(value)).replace('x', 'X')
+
+    def _normalize_country(self, raw_country, range_token="", number_token=""):
+        """Prefer explicit country; fallback to number/range based detection."""
+        country = str(raw_country or "").strip()
+        generic_labels = {"unknown", "other", "postpaid", "prepaid"}
+        if country and country.lower() not in generic_labels:
+            return country
+
+        detected = (
+            detect_country_from_range(range_token)
+            or detect_country_from_number(number_token)
+            or detect_country_from_range(number_token)
+        )
+        return detected or "Unknown"
+
+    def _build_ranges_from_console_logs(self, logs):
+        """
+        Build deduplicated range objects from console stream.
+        This replaces old /mdashboard/access scraping.
+        """
+        # Convert bootstrap ranges to log item format
+        bootstrap_logs = []
+        if hasattr(self, 'bootstrap_ranges') and self.bootstrap_ranges:
+            for b_idx, b_item in enumerate(self.bootstrap_ranges):
+                bootstrap_logs.append({
+                    "id": f"b_{b_idx}",
+                    "time": "12:00:00",
+                    "carrier": b_item.get("carrier", "Unknown"),
+                    "operator": b_item.get("operator", "Unknown"),
+                    "app_name": b_item.get("app_name", "Unknown"),
+                    "sms": "",
+                    "range": b_item.get("range", ""),
+                    "country": b_item.get("country", "Unknown")
+                })
+        
+        combined_logs = []
+        if isinstance(logs, list):
+            combined_logs.extend(logs)
+        combined_logs.extend(bootstrap_logs)
+
+        if not combined_logs:
+            return []
+
+        primary_services = {"whatsapp", "facebook", "telegram"}
+        primary_labels = {
+            "whatsapp": "WhatsApp",
+            "facebook": "Facebook",
+            "telegram": "Telegram",
+        }
+
+        range_map = {}
+
+        for idx, item in enumerate(combined_logs):
+            if not isinstance(item, dict):
+                continue
+
+            app_name_raw = str(item.get('app_name') or "").strip()
+            if not app_name_raw:
+                continue
+
+            service_key = normalize_service_name(app_name_raw)
+            service_label = primary_labels.get(service_key, app_name_raw)
+
+            raw_range = self._normalize_range_token(item.get('range'))
+            raw_number = self._normalize_range_token(item.get('number'))
+            raw_carrier = self._normalize_range_token(item.get('carrier'))
+
+            range_token = raw_carrier or raw_range or raw_number
+            if not range_token:
+                continue
+
+            # If range_token is purely numeric and >= 7 digits, infer short range
+            if range_token.isdigit() and len(range_token) >= 7:
+                range_token = f"{range_token[:-3]}XXX"
+
+            # The new API might fail with 500 if XXX is appended. Keep the raw token.
+            range_for_api = range_token
+
+            # Ignore clearly invalid short prefixes.
+            if len(re.sub(r'[^0-9]', '', range_for_api)) < 4:
+                continue
+
+            country = self._normalize_country(item.get('country'), range_for_api, raw_number)
+            carrier = str(item.get('carrier') or "Unknown").strip() or "Unknown"
+            log_id = item.get('id')
+
+            # Existing UI sort expects "X mins ago" style text.
+            datetime_label = f"{idx} mins ago"
+
+            obj = {
+                'id': range_for_api,
+                'numerical_id': str(log_id) if log_id is not None else "",
+                'range_id': range_for_api,
+                'name': range_for_api,
+                'pattern': range_for_api,
+                'country': country,
+                'cantryName': country,
+                'operator': carrier,
+                'service': service_label,
+                'datetime': datetime_label,
+            }
+
+            # Keep newest occurrence per (service, range).
+            map_key = (service_label.lower(), range_for_api)
+            if map_key not in range_map:
+                range_map[map_key] = obj
+            else:
+                existing = range_map[map_key]
+                if existing.get('country') in {"Unknown", "Other", "postpaid", "prepaid"} and country not in {"Unknown", "Other", "postpaid", "prepaid"}:
+                    range_map[map_key] = obj
+
+        # Keep deterministic ordering by freshness first.
+        ranges = list(range_map.values())
+        ranges.sort(key=lambda x: parse_time_ago(x.get('datetime', '')))
+
+        # Drop exact duplicate range IDs to keep UI cleaner.
+        seen_ids = set()
+        unique_ranges = []
+        for r in ranges:
+            rid = str(r.get('range_id') or r.get('name') or "")
+            sid = str(r.get('service') or "").lower()
+            dedupe_key = (sid, rid)
+            if dedupe_key in seen_ids:
+                continue
+            seen_ids.add(dedupe_key)
+            unique_ranges.append(r)
+
+        # Filter out blank service rows from "others" view stability perspective.
+        return [r for r in unique_ranges if str(r.get('service') or "").strip()]
+
+    def get_ranges(self, app_id, max_retries=3, keyword=""):
+        """Get ranges using new getnum-era console stream metadata."""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return []
+
+            app_id_norm = str(app_id or "").strip().lower()
+            cache_key = f"ranges_console::{app_id_norm}"
+            now_ts = time.time()
+
+            if cache_key in self._ranges_cache:
+                entry = self._ranges_cache[cache_key]
+                if now_ts - entry['timestamp'] < self._cache_duration:
+                    return entry['data']
+
+            logs = self.get_console_logs()
+            all_ranges = self._build_ranges_from_console_logs(logs)
+            if not all_ranges:
+                logger.warning(f"No ranges available from console source for app_id={app_id}")
+                self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': []}
+                return []
+
+            primary_services = {"whatsapp", "facebook", "telegram"}
+            filtered = []
+
+            for r in all_ranges:
+                service_label = str(r.get('service') or "").strip()
+                if not service_label:
+                    continue
+
+                service_norm = normalize_service_name(service_label)
+                service_lower = service_label.lower()
+
+                if app_id_norm in primary_services:
+                    if service_norm == app_id_norm:
+                        filtered.append(r)
+                elif app_id_norm == "others":
+                    if service_norm not in primary_services:
+                        filtered.append(r)
+                else:
+                    if app_id_norm in service_lower or service_lower in app_id_norm:
+                        filtered.append(r)
+
+            self._ranges_cache[cache_key] = {'timestamp': now_ts, 'data': filtered}
+            logger.info(f"Found {len(filtered)} ranges for {app_id} from new console source")
+            return filtered
+
+        except Exception as e:
+            logger.error(f"Error getting ranges: {e}")
+            return []
+
+    def get_applications(self, max_retries=3):
+        """Get available applications - Mapped from SERVICE_APP_IDS for compatibility"""
+        apps = []
+        for name, app_id in SERVICE_APP_IDS.items():
+            apps.append({'id': app_id, 'name': app_id})
+        return apps
+    
+    def get_number(self, range_id):
+        """Request a number from a range"""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return None
+
+            normalized = self._normalize_range_token(range_id)
+            if not normalized:
+                return None
+
+            candidates = []
+            
+            # Always try exactly what was provided first
+            candidates.append(normalized)
+            
+            # Try variants based on 'X' presence
+            if 'X' in normalized:
+                no_x = normalized.replace('X', '')
+                if no_x:
+                    candidates.append(no_x)
+            else:
+                candidates.append(f"{normalized}XXX")
+
+            # Keep order and remove duplicates.
+            dedup_candidates = []
+            seen = set()
+            for c in candidates:
+                if c not in seen:
+                    seen.add(c)
+                    dedup_candidates.append(c)
+
+            for candidate_range in dedup_candidates:
+                headers = {
+                    **self.browser_headers,
+                    "mauth": self.auth_token,
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Referer": f"{self.base_url}/"
+                }
+
+                payload = {
+                    "range": candidate_range,
+                    "is_national": False,
+                    "remove_plus": False
+                }
+
+                logger.info(f"DEBUG getnum request: payload={payload}")
+
+                key = self._get_decrypt_key()
+                encrypted_payload = codec.encrypt(payload, key)
+
+                url = f"{self.base_api_url}/@dashboard/dialer/getnum/request"
+                resp = self.session.post(
+                    url,
+                    data=encrypted_payload,
+                    headers=headers,
+                    timeout=15
+                )
+
+                logger.info(f"DEBUG getnum response status: {resp.status_code}")
+
+                if resp.status_code in [401, 403]:
+                    self.auth_token = None
+                    if self.login():
+                        headers["mauth"] = self.auth_token
+                        key = self._get_decrypt_key()
+                        encrypted_payload = codec.encrypt(payload, key)
+                        resp = self.session.post(
+                            url,
+                            data=encrypted_payload,
+                            headers=headers,
+                            timeout=15
+                        )
+
+                if resp.status_code == 200:
+                    decrypted_text = codec.decrypt(resp.text.strip(), key)
+                    logger.info(f"DEBUG getnum decrypted response: {str(decrypted_text)[:500]}")
+                    data = decrypted_text if isinstance(decrypted_text, dict) else json.loads(decrypted_text)
+                    if 'data' in data:
+                        number_data = data['data']
+                        if isinstance(number_data, dict):
+                            if 'number' in number_data:
+                                return number_data
+                            if 'copy' in number_data:
+                                number_data['number'] = number_data['copy']
+                                return number_data
+                    else:
+                        logger.warning(f"DEBUG NO DATA FIELD: {data}")
+                else:
+                    err_msg = resp.text[:500]
+                    try:
+                        dec_err = codec.decrypt(resp.text.strip(), key)
+                        err_msg = f"Decrypted: {str(dec_err)}"
+                    except:
+                        pass
+                    logger.warning(f"DEBUG NOT 200: Status={resp.status_code}, Msg={err_msg}")
+
+            logger.warning(f"get_number failed for range={range_id}")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting number: {e}")
+            return None
+    
+    def get_multiple_numbers(self, range_id, range_name=None, count=2, max_retries=10):
+        """Request multiple numbers from a range - with filtering and dual range_id/range_name logic."""
+        numbers = []
+        total_attempts = 0
+        max_total_attempts = count * 10  # Safety limit
+        
+        logger.info(f"Requesting {count} numbers from range {range_id} (name: {range_name})")
+        
+        while len(numbers) < count and total_attempts < max_total_attempts:
+            total_attempts += 1
+            try:
+                # Try range_name first (this is the pattern like "9965579XXX")
+                number_data = None
+                if range_name:
+                    logger.info(f"Attempting with range_name (pattern): {range_name}")
+                    number_data = self.get_number(range_name)
+                
+                # Fallback to range_id only if range_name fails and they're different
+                if not number_data and range_id != range_name:
+                    logger.info(f"Fallback: attempting with range_id: {range_id}")
+                    number_data = self.get_number(range_id)
+                    
+                if number_data:
+                    num_val = number_data.get('number') or number_data.get('num')
+                    if num_val:
+                        # Check if number was used in last 24 hours
+                        if not is_number_used(num_val):
+                            numbers.append(number_data)
+                            logger.info(f"Added fresh number: {num_val}")
+                        else:
+                            logger.info(f"Skipping recently used number: {num_val}")
+                    else:
+                        logger.warning(f"get_number returned data without number field: {number_data}")
+                else:
+                    # No more numbers available from API or temporary error
+                    logger.warning(f"get_number returned None for range {range_id} (attempt {total_attempts})")
+                    # If we already have some numbers, maybe return what we have after a few more tries
+                    if len(numbers) > 0 and total_attempts > count + 2:
+                        break
+                    time.sleep(1)
+            except Exception as e:
+                logger.error(f"Error in get_multiple_numbers loop: {e}")
+                time.sleep(1)
+        
+        if not numbers:
+            logger.error(f"❌ Failed to get any valid numbers from range {range_id} after {total_attempts} attempts.")
+        else:
+            logger.info(f"✅ Successfully obtained {len(numbers)}/{count} numbers for range {range_id}.")
+            
+        return numbers
+    
+    def check_otp(self, number):
+        """Check for OTP on a number - using NEW API /@dashboard/dialer/getnum/list"""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return None
+            
+            headers = {
+                **self.browser_headers,
+                "mauth": self.auth_token,
+                "Referer": f"{self.base_url}/"
+            }
+            
+            url = f"{self.base_api_url}/@dashboard/dialer/getnum/list?page=1"
+            resp = self.session.get(
+                url,
+                headers=headers,
+                timeout=8
+            )
+            
+            if resp.status_code == 401:
+                logger.info("Token expired in check_otp, refreshing...")
+                if self.login():
+                    headers["mauth"] = self.auth_token
+                    resp = self.session.get(
+                        url,
+                        headers=headers,
+                        timeout=8
+                    )
+                else:
+                    return None
+            
+            if resp.status_code == 200:
+                key = self._get_decrypt_key()
+                decrypted_text = codec.decrypt(resp.text.strip(), key)
+                data = decrypted_text if isinstance(decrypted_text, dict) else json.loads(decrypted_text)
+                if 'data' in data and data['data']:
+                    numbers_list = data['data'].get('numbers', [])
+                    if numbers_list:
+                        target_normalized = number.replace('+', '').replace(' ', '').strip()
+                        
+                        for num_obj in numbers_list:
+                            api_num = num_obj.get('number', '').replace('+', '').strip()
+                            if api_num == target_normalized or (len(api_num) >= 9 and len(target_normalized) >= 9 and api_num[-9:] == target_normalized[-9:]):
+                                msg = num_obj.get('message') or num_obj.get('otp', '')
+                                if msg:
+                                    num_obj['sms_content'] = msg
+                                    num_obj['otp'] = None  # Clear to force extraction
+                                    return num_obj
+                                else:
+                                    return num_obj 
+            return None
+        except Exception as e:
+            logger.error(f"Error checking OTP: {e}")
+            return None
+    
+    def check_otp_batch(self, numbers):
+        """Check OTP for multiple numbers - using NEW API"""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return {}
+            
+            headers = {
+                **self.browser_headers,
+                "mauth": self.auth_token,
+                "Referer": f"{self.base_url}/"
+            }
+            
+            url = f"{self.base_api_url}/@dashboard/dialer/getnum/list?page=1"
+            resp = self.session.get(
+                url,
+                headers=headers,
+                timeout=8
+            )
+            
+            if resp.status_code == 401:
+                if self.login():
+                    headers["mauth"] = self.auth_token
+                    resp = self.session.get(
+                        url,
+                        headers=headers,
+                        timeout=8
+                    )
+                else:
+                    return {}
+
+            result = {}
+            if resp.status_code == 200:
+                key = self._get_decrypt_key()
+                decrypted_text = codec.decrypt(resp.text.strip(), key)
+                data = decrypted_text if isinstance(decrypted_text, dict) else json.loads(decrypted_text)
+                if 'data' in data and data['data']:
+                    numbers_list = data['data'].get('numbers', [])
+                    if numbers_list:
+                        target_map_exact = {n.replace('+', '').replace(' ', '').strip(): n for n in numbers}
+                        target_map_last9 = {n.replace('+', '').replace(' ', '').strip()[-9:]: n for n in numbers if len(n.replace('+', '').replace(' ', '').strip()) >= 9}
+                        
+                        for num_obj in numbers_list:
+                            api_num = num_obj.get('number', '').replace('+', '').strip()
+                            
+                            msg = num_obj.get('message') or num_obj.get('otp', '')
+                            if msg:
+                                num_obj['sms_content'] = msg
+                                num_obj['otp'] = None
+
+                            if api_num in target_map_exact:
+                                origin = target_map_exact[api_num]
+                                result[origin] = num_obj
+                            elif len(api_num) >= 9 and api_num[-9:] in target_map_last9:
+                                origin = target_map_last9[api_num[-9:]]
+                                result[origin] = num_obj
+
+            return result
+        except Exception as e:
+            logger.error(f"Error checking OTP batch: {e}")
+            return {}
+
+    def get_console_logs(self):
+        """Get latest masked OTP logs from console endpoint."""
+        try:
+            if not self.auth_token:
+                if not self.login():
+                    return []
+
+            headers = {
+                **self.browser_headers,
+                "mauth": self.auth_token,
+                "Referer": f"{self.base_url}/"
+            }
+
+            url = f"{self.base_api_url}/@dashboard/dialer/console/info"
+            resp = self.session.get(url, headers=headers, timeout=10)
+
+            if resp.status_code in [401, 403]:
+                logger.info("Token expired in get_console_logs, refreshing...")
+                if self.login():
+                    headers["mauth"] = self.auth_token
+                    resp = self.session.get(url, headers=headers, timeout=10)
+                else:
+                    return []
+
+            if resp.status_code != 200:
+                logger.warning(f"get_console_logs failed: status={resp.status_code} body={resp.text[:200]}")
+                return []
+
+            key = self._get_decrypt_key()
+            decrypted_text = codec.decrypt(resp.text.strip(), key)
+            payload = decrypted_text if isinstance(decrypted_text, dict) else json.loads(decrypted_text)
+            
+            data = payload.get("data", {}) if isinstance(payload, dict) else {}
+            logs = data.get("logs", []) if isinstance(data, dict) else []
+            
+            if isinstance(logs, list):
+                for item in logs:
+                    if isinstance(item, dict):
+                        app_name = item.get('app_name')
+                        if app_name and str(app_name).strip() == '******':
+                            item['app_name'] = 'WhatsApp'
+            
+            return logs if isinstance(logs, list) else []
+        except Exception as e:
+            logger.error(f"Error getting console logs: {e}")
+            return []
+
+# Global API client - single session for all users
 global_api_client = None
 api_lock = threading.Lock()
 
@@ -833,6 +1315,11 @@ def detect_country_from_range(range_name):
             code = range_str[:code_len]
             if code.isdigit() and code in COUNTRY_CODES:
                 return COUNTRY_CODES[code]
+                
+    range_str_upper = str(range_name).upper()
+    for code, country_name in COUNTRY_CODES.items():
+        if code in range_str_upper or country_name.upper() in range_str_upper:
+            return country_name
     
     return None
 
@@ -962,10 +1449,10 @@ def detect_country_from_number(number):
     return None
 
 def _sanitize_start_token(value, max_len=48):
-    """Keep only deep-link safe chars."""
+    """Keep deep-link safe chars including underscores."""
     if not value:
         return ""
-    return re.sub(r'[^A-Za-z0-9]', '', str(value))[:max_len]
+    return re.sub(r'[^A-Za-z0-9_\-]', '', str(value))[:max_len]
 
 def infer_range_from_number(number):
     """Best-effort range guess from a phone number."""
@@ -980,7 +1467,7 @@ def normalize_service_name(service_name):
         return None
 
     normalized = re.sub(r'[^a-z0-9]+', '', str(service_name).lower())
-    if "whatsapp" in normalized or "alymscintl" in normalized or service_name == "******":
+    if "whatsapp" in normalized:
         return "whatsapp"
     if "facebook" in normalized:
         return "facebook"
@@ -990,7 +1477,7 @@ def normalize_service_name(service_name):
 
 def build_range_start_payload(range_value, service_name=None):
     """Build /start deep-link payload for range."""
-    range_token = _sanitize_start_token(str(range_value).replace("XXX", ""), max_len=40).upper()
+    range_token = _sanitize_start_token(range_value, max_len=40).replace('x', 'X')
     if not range_token:
         return None
 
@@ -1006,11 +1493,12 @@ def parse_range_start_payload(payload):
 
     rest = payload[4:]
     if "_" in rest:
-        range_part, service_part = rest.split("_", 1)
+        # Use rsplit to handle ranges that contain underscores like b_42
+        range_part, service_part = rest.rsplit("_", 1)
     else:
         range_part, service_part = rest, ""
 
-    range_value = _sanitize_start_token(range_part, max_len=40).upper()
+    range_value = _sanitize_start_token(range_part, max_len=40).replace('x', 'X')
     service_hint = _sanitize_start_token(service_part, max_len=12).lower() or None
 
     if not range_value:
@@ -1044,13 +1532,12 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     user_id = update.effective_user.id
     api_client = get_global_api_client()
     if not api_client:
-        await update.message.reply_text(
-              "✖ API connection error. Please try again.", parse_mode="Markdown")
+        await update.message.reply_text("❌ API connection error. Please try again.")
         return
 
     session = get_user_session(user_id)
     number_count = session.get('number_count', 2) if session else 2
-    base_range = _sanitize_start_token(range_value, max_len=40).upper()
+    base_range = _sanitize_start_token(range_value, max_len=40).replace('x', 'X')
 
     if len(base_range) < 4:
         await update.message.reply_text("❌ Invalid range.")
@@ -1515,32 +2002,21 @@ def remember_console_log(log_key):
 
 def build_console_channel_message(log_item):
     """Build channel message using legacy one-line channel template."""
-    # Support multiple keys for resilience
-    country = str(log_item.get('country') or log_item.get('cantryName') or 'Unknown').strip() or 'Unknown'
-    service_raw = str(log_item.get('app_name') or log_item.get('service') or 'Unknown').strip() or 'Unknown'
-    
-    # Try range first, then number
-    number_masked = str(log_item.get('range') or log_item.get('number') or 'Unknown').strip() or 'Unknown'
-    
-    sms_content = str(log_item.get('sms') or log_item.get('message') or log_item.get('otp', '')).strip()
+    country = str(log_item.get('country') or 'Unknown').strip() or 'Unknown'
+    service_raw = str(log_item.get('app_name') or 'Unknown').strip() or 'Unknown'
+    number_masked = str(log_item.get('number') or 'Unknown').strip() or 'Unknown'
+    sms_content = str(log_item.get('sms') or '').strip()
     language = detect_language_from_sms(sms_content) if sms_content else 'English'
     service_key = normalize_service_name(service_raw)
 
     country_flag = get_country_flag(country)
     country_code = get_country_code(country)
-    
-    if service_raw in ["******", "alymscintl"]: service_raw = "WhatsApp"
-    
     service_display = {
         "whatsapp": "WhatsApp",
         "facebook": "Facebook",
         "telegram": "Telegram"
     }.get(service_key, service_raw)
 
-    # Restore full legacy format: Globe #CODE Service Number Language
-    # If language is English and SMS is short, maybe it's just the code?
-    # We will use: Flag #CODE Service Number Language
-    import html
     return f"{country_flag} #{country_code} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
 
 # Bot Handlers
@@ -1998,14 +2474,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not country or country == 'Unknown' or str(country).strip() == '':
                 country = detect_country_from_range(range_name)
             
-            # Only use Unknown as last resort - try harder to detect
-            if not country or country == 'Unknown':
-                range_str = str(range_name).upper()
-                for code, country_name in COUNTRY_CODES.items():
-                    if code in range_str or country_name.upper() in range_str:
-                        country = country_name
-                        break
-            
             # Final fallback
             if not country:
                 country = 'Unknown'
@@ -2252,9 +2720,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if r_country_detected and r_country_detected.lower() == country.lower():
                     is_match = True
                     logger.info(f"✓ Range {range_name} MATCHED (no API country, detected {r_country_detected})")
-                # Also try more aggressive detection if needed
-                # Aggressive detection removed to prevent false positives (e.g., matching 244 in 232...)
-                pass
+                elif not r_country_detected and country.lower() == 'unknown':
+                    is_match = True
+                    logger.info(f"✓ Range {range_name} MATCHED (no API country, could not detect, matched Unknown)")
             
             if is_match:
                 matching_ranges.append(r)
@@ -2383,6 +2851,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 logger.error(f"Error fetching numbers: {e}")
+                import traceback
                 logger.error(traceback.format_exc())
                 try:
                     await context.bot.edit_message_text(
@@ -2995,6 +3464,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             except Exception as e:
                 logger.error(f"Error fetching range numbers: {e}")
+                import traceback
                 logger.error(traceback.format_exc())
                 try:
                     await context.bot.edit_message_text(
@@ -3804,6 +4274,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     # Otherwise, continue monitoring for remaining numbers
     except Exception as e:
         logger.error(f"Error monitoring OTP for user {user_id}: {e}")
+        import traceback
         logger.error(traceback.format_exc())
 
 async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
@@ -3870,7 +4341,6 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             sms_content = str(log_item.get('sms') or '')
             service = str(log_item.get('app_name') or '')
-            if service in ["******", "alymscintl"]: service = "WhatsApp"
             service_key = normalize_service_name(service)
 
             # Forward only allowed service groups (fixed for now).
@@ -3886,7 +4356,17 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             channel_message = build_console_channel_message(log_item)
             masked_otp = extract_masked_otp_from_sms(sms_content) or "******"
-            range_value = str(log_item.get('range') or '').strip()
+            raw_range = str(log_item.get('range') or '').strip()
+            raw_carrier = str(log_item.get('carrier') or '').strip()
+            raw_number = str(log_item.get('number') or '').strip()
+            
+            # Prioritize carrier, then range, then number
+            range_value = raw_carrier or raw_range or raw_number
+            
+            # If it's a long purely numeric string, shorten it to match valid API range patterns
+            if range_value and range_value.isdigit() and len(range_value) >= 7:
+                range_value = f"{range_value[:-3]}XXX"
+                
             range_url = await build_range_deeplink(context, range_value, service_key)
 
             channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
@@ -3915,17 +4395,11 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                 break
     except Exception as e:
         logger.error(f"Error in monitor_console_logs: {e}")
+        import traceback
         logger.error(traceback.format_exc())
 
 def main():
     """Start the bot"""
-    # Wait a bit on startup to avoid conflict with the old instance on Render
-    # Render's zero-downtime deployment starts the new instance while the old one is still stopping.
-    startup_delay = int(os.getenv("STARTUP_DELAY", "5"))
-    if startup_delay > 0:
-        logger.info(f"Waiting {startup_delay} seconds for old instance to stop...")
-        time.sleep(startup_delay)
-
     # Start Flask app in a separate thread for Render port binding
     port = int(os.getenv("PORT", 10000))
     flask_app = Flask(__name__)
@@ -4009,6 +4483,7 @@ def main():
         logger.error(f"❌ Conflict error on startup: {e}. Another bot instance may be running.")
         logger.info("💡 If you're sure only one instance should run, wait a few seconds and the bot will retry.")
         # Wait and retry once
+        import time
         time.sleep(10)
         logger.info("🔄 Retrying bot startup...")
         application.run_polling(
