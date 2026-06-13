@@ -13,9 +13,18 @@ import unicodedata
 import concurrent.futures
 import math
 import traceback
+import random
+from functools import partial
 from datetime import datetime, timedelta, timezone
 
 import requests
+from flask import Flask
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 try:
     from curl_cffi import requests as curl_requests
 except ImportError:
@@ -29,7 +38,7 @@ except ImportError:
     except ImportError:
         AES = None
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, JobQueue
 from telegram.error import Conflict
 
@@ -44,6 +53,7 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
 WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
 UPDATE_CONCURRENCY = int(os.getenv("UPDATE_CONCURRENCY", "128"))
+CONSOLE_FORWARD_SERVICE_KEYS = ["whatsapp", "facebook", "telegram", "others", "alymscintl", "******"]
 
 def b62_encode(data):
     base = len(WIRE_ALPHABET)
