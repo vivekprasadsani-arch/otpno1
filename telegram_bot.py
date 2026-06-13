@@ -75,6 +75,17 @@ UPDATE_CONCURRENCY = int(os.getenv("UPDATE_CONCURRENCY", "128"))
 CONSOLE_MONITOR_INTERVAL = int(os.getenv("CONSOLE_MONITOR_INTERVAL", "3"))
 CONSOLE_MAX_FORWARDS_PER_CYCLE = int(os.getenv("CONSOLE_MAX_FORWARDS_PER_CYCLE", "6"))
 CONSOLE_CYCLE_BUDGET_SECONDS = float(os.getenv("CONSOLE_CYCLE_BUDGET_SECONDS", "2.2"))
+API_IO_WORKERS = int(os.getenv("API_IO_WORKERS", "120"))
+api_io_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=max(16, API_IO_WORKERS),
+    thread_name_prefix="api-io"
+)
+
+async def run_api_call(func, *args, **kwargs):
+    """Run blocking API call in a thread pool executor."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(api_io_executor, partial(func, *args, **kwargs))
+
 
 SERVICE_APP_IDS = {
     "whatsapp": "WhatsApp",
