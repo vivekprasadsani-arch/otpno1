@@ -21,6 +21,16 @@ from dotenv import load_dotenv
 from flask import Flask
 import base64
 
+# Configure logging FIRST
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
 try:
     from Cryptodome.Cipher import AES
 except ImportError:
@@ -29,12 +39,27 @@ except ImportError:
     except ImportError:
         AES = None
 
-# Load environment variables
-load_dotenv()
-
 # Configuration
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tness"
 WIRE_ALPHABET = "8sNpKxR7vQzJgYhCdW3FmTaB5ueIoP9rfk2L0wXyZitc4nAVMSjEUDqGl1H6bO"
+def b62_encode(data):
+    base = len(WIRE_ALPHABET)
+    res = int.from_bytes(data, 'big')
+    if res == 0: return WIRE_ALPHABET[0]
+    out = ""
+    while res > 0:
+        res, rem = divmod(res, base)
+        out = WIRE_ALPHABET[rem] + out
+    return out
+
+def b62_decode(data):
+    base = len(WIRE_ALPHABET)
+    res = 0
+    for char in data:
+        res = res * base + WIRE_ALPHABET.index(char)
+    byte_len = (res.bit_length() + 7) // 8
+    return res.to_bytes(byte_len, 'big')
+
 
 API_EMAIL = os.getenv("API_EMAIL", "roni791158@gmail.com")
 API_PASSWORD = os.getenv("API_PASSWORD", "53561106@Roni")
@@ -75,36 +100,16 @@ except ImportError:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def _build_bengali_proverb_pool(target_size=1000):
-    starters = ["à¦§à§ˆà¦°à§à¦¯ à¦§à¦°à¦²à§‡", "à¦¸à¦¤à¦¤à¦¾ à¦°à¦¾à¦–à¦²à§‡", "à¦ªà¦°à¦¿à¦¶à§à¦°à¦® à¦•à¦°à¦²à§‡", "à¦¸à¦®à§Ÿà¦•à§‡ à¦¸à¦®à§à¦®à¦¾à¦¨ à¦•à¦°à¦²à§‡"]
-    middles = ["à¦¸à¦¾à¦«à¦²à§à¦¯ à¦à¦•à¦¦à¦¿à¦¨ à¦¦à¦°à¦œà¦¾à§Ÿ à¦•à§œà¦¾ à¦¨à¦¾à§œà¦¬à§‡à¦‡", "à¦­à¦¾à¦—à§à¦¯à¦“ à¦ªà¦°à¦¿à¦¶à§à¦°à¦®à§€à¦° à¦ªà¦¾à¦¶à§‡ à¦¦à¦¾à¦à§œà¦¾à§Ÿ"]
-    endings = ["à¦¤à¦¾à¦‡ à¦†à¦œà¦“ à¦à¦—à¦¿à§Ÿà§‡ à¦¯à¦¾à¦“", "à¦¤à¦¾à¦‡ à¦¨à¦¿à¦œà§‡à¦° à¦—à¦¤à¦¿à¦¤à§‡ à¦šà¦²à¦¤à§‡ à¦¥à¦¾à¦•à§‹"]
-    lines = [f"{a}, {b} - {c}à¥¤" for a in starters for b in middles for c in endings]
+    starters = ["ধৈর্য ধরলে", "সততা রাখলে", "পরিশ্রম করলে", "সময়কে সম্মান করলে"]
+    middles = ["সাফল্য একদিন দরজায় কড়া নাড়বেই", "ভাগ্যও পরিশ্রমীর পাশে দাঁড়ায়"]
+    endings = ["তাই আজও এগিয়ে যাও", "তাই নিজের গতিতে চলতে থাকো"]
+    lines = [f"{a}, {b} - {c}।" for a in starters for b in middles for c in endings]
     return lines[:target_size]
 
 BN_OTP_MOTIVATION_LINES = _build_bengali_proverb_pool(1000)
 
 def get_random_bn_otp_motivation():
-    return random.choice(BN_OTP_MOTIVATION_LINES) if BN_OTP_MOTIVATION_LINES else "à¦ªà¦°à¦¿à¦¶à§à¦°à¦® à¦•à¦°à§à¦¨à¥¤"
-
-# --- API Helpers & Client ---
-
-def b62_encode(data):
-    base = len(WIRE_ALPHABET)
-    res = int.from_bytes(data, 'big')
-    if res == 0: return WIRE_ALPHABET[0]
-    out = ""
-    while res > 0:
-        res, rem = divmod(res, base)
-        out = WIRE_ALPHABET[rem] + out
-    return out
-
-def b62_decode(data):
-    base = len(WIRE_ALPHABET)
-    res = 0
-    for char in data:
-        res = res * base + WIRE_ALPHABET.index(char)
-    byte_len = (res.bit_length() + 7) // 8
-    return res.to_bytes(byte_len, 'big')
+    return random.choice(BN_OTP_MOTIVATION_LINES) if BN_OTP_MOTIVATION_LINES else "পরিশ্রম করুন।"
 
 class WireCodec:
     def __init__(self, sid="M0000000001"):
