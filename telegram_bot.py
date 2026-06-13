@@ -12,6 +12,7 @@ import threading
 import unicodedata
 import concurrent.futures
 import math
+import traceback
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -165,7 +166,6 @@ class APIClient:
                         return True
                 return False
             except Exception as e:
-                import traceback
                 logger.error(f"Login exception: {e}\n{traceback.format_exc()}")
                 return False
 
@@ -2333,7 +2333,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 logger.error(f"Error fetching numbers: {e}")
-                import traceback
                 logger.error(traceback.format_exc())
                 try:
                     await context.bot.edit_message_text(
@@ -2946,7 +2945,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             except Exception as e:
                 logger.error(f"Error fetching range numbers: {e}")
-                import traceback
                 logger.error(traceback.format_exc())
                 try:
                     await context.bot.edit_message_text(
@@ -3756,7 +3754,6 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     # Otherwise, continue monitoring for remaining numbers
     except Exception as e:
         logger.error(f"Error monitoring OTP for user {user_id}: {e}")
-        import traceback
         logger.error(traceback.format_exc())
 
 async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
@@ -3868,7 +3865,6 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                 break
     except Exception as e:
         logger.error(f"Error in monitor_console_logs: {e}")
-        import traceback
         logger.error(traceback.format_exc())
 
 def main():
@@ -3963,7 +3959,6 @@ def main():
         logger.error(f"❌ Conflict error on startup: {e}. Another bot instance may be running.")
         logger.info("💡 If you're sure only one instance should run, wait a few seconds and the bot will retry.")
         # Wait and retry once
-        import time
         time.sleep(10)
         logger.info("🔄 Retrying bot startup...")
         application.run_polling(
