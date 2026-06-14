@@ -2741,8 +2741,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         range_id = selected_range.get('numerical_id', selected_range.get('range_id', selected_range.get('id', '')))
         range_name = selected_range.get('pattern', selected_range.get('name', ''))
         
-        # Show loading message and acknowledge callback immediately
-        await query.edit_message_text("⏳ Requesting numbers...")
+        # Delete old message and send new one at the bottom as requested
+        try:
+            await query.message.delete()
+        except Exception as e:
+            logger.debug(f"Could not delete message: {e}")
+        
+        sent_loading_msg = await context.bot.send_message(
+            chat_id=user_id,
+            text="⏳ Requesting numbers..."
+        )
+        loading_message_id = sent_loading_msg.message_id
         try:
             await query.answer()  # Acknowledge callback immediately to prevent timeout
         except Exception as e:
@@ -2762,7 +2771,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text="❌ Failed to get numbers. Please try again."
                     )
                     return
@@ -2777,7 +2786,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not numbers_list:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text="❌ No valid numbers received. Please try again."
                     )
                     return
@@ -2805,19 +2814,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     interval=3,  # Increased to 3 seconds to prevent overlap
                     first=3,
                     chat_id=user_id,
-                    data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': query.message.message_id}
+                    data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': loading_message_id}
                 )
                 user_jobs[user_id] = job  # Store job reference
                 
                 # Create inline keyboard with 5 numbers (click to copy using copy_text parameter)
                 keyboard = []
                 for i, num in enumerate(numbers_list, 1):
-                    # Format number for display
+                    # Format number for display (ensure + prefix as requested)
                     display_num = num
                     if not display_num.startswith('+'):
                         digits_only = ''.join(filter(str.isdigit, display_num))
-                        if len(digits_only) >= 10:
-                            display_num = '+' + digits_only
+                        display_num = '+' + (digits_only if digits_only else display_num)
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
                     keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
@@ -2856,7 +2864,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text=f"❌ Error: {str(e)}"
                     )
                 except:
@@ -3310,7 +3318,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"Retrieved range: service={service_name}, range_id={range_id}, range_name={range_name}, range_id_field={range_id_field}")
         
-        await query.edit_message_text("⏳ Requesting numbers from range...")
+        # Delete old message and send new one at the bottom as requested
+        try:
+            await query.message.delete()
+        except Exception as e:
+            logger.debug(f"Could not delete message: {e}")
+        
+        sent_loading_msg = await context.bot.send_message(
+            chat_id=user_id,
+            text="⏳ Requesting numbers from range..."
+        )
+        loading_message_id = sent_loading_msg.message_id
         try:
             await query.answer()
         except Exception as e:
@@ -3325,7 +3343,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.error("API client not available")
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text="❌ API connection error. Please try again."
                     )
                     return
@@ -3343,7 +3361,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not numbers_data or len(numbers_data) == 0:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text="❌ Failed to get numbers from this range. Please try again."
                     )
                     return
@@ -3364,7 +3382,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not numbers_list:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text="❌ No valid numbers received. Please try again."
                     )
                     return
@@ -3375,7 +3393,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.error(f"Invalid service_name in range selection: {service_name}")
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text=f"❌ Invalid service: {service_name}"
                     )
                     return
@@ -3397,6 +3415,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 keyboard = []
                 for num in numbers_list:
                     display_num = num
+                    if not display_num.startswith('+'):
+                        digits_only = ''.join(filter(str.isdigit, display_num))
+                        display_num = '+' + (digits_only if digits_only else display_num)
                     # Use copy_text via api_kwargs - no callback_data needed for copy
                     keyboard.append([InlineKeyboardButton(
                         f"📱 {display_num}",
@@ -3429,7 +3450,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
-                    message_id=query.message.message_id,
+                    message_id=loading_message_id,
                     text=message_text,
                     reply_markup=reply_markup
                 )
@@ -3469,7 +3490,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
-                        message_id=query.message.message_id,
+                        message_id=loading_message_id,
                         text=f"❌ Error: {str(e)}\n\nRange ID: {range_id}\nService: {service_name}"
                     )
                 except:
@@ -3721,6 +3742,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = []
             for num in numbers_list:
                 display_num = num
+                if not display_num.startswith('+'):
+                    digits_only = ''.join(filter(str.isdigit, display_num))
+                    if len(digits_only) >= 10:
+                        display_num = '+' + digits_only
+                    else:
+                        display_num = '+' + display_num
                 # Use copy_text via api_kwargs - no callback_data needed for copy
                 keyboard.append([InlineKeyboardButton(
                     f"📱 {display_num}",
@@ -3910,25 +3937,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             numbers_str = ','.join(numbers_list)
             update_user_session(user_id, service_name, country, range_id, numbers_str, 1)
             
-            # Start monitoring all numbers in background
-            job = context.job_queue.run_repeating(
-                monitor_otp,
-                interval=2,
-                first=2,
-                chat_id=user_id,
-                data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': sent_msg.message_id}
-            )
-            user_jobs[user_id] = job
-            
             # Create inline keyboard with 5 numbers (click to copy supported via <code> tag)
             keyboard = []
             for i, num in enumerate(numbers_list, 1):
-                # Format number for display
+                # Format number for display (ensure + prefix as requested)
                 display_num = num
                 if not display_num.startswith('+'):
                     digits_only = ''.join(filter(str.isdigit, display_num))
-                    if len(digits_only) >= 10:
-                        display_num = '+' + digits_only
+                    display_num = '+' + (digits_only if digits_only else display_num)
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
                 keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
@@ -3958,6 +3974,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
+
+            # Start monitoring all numbers in background - move after sent_msg to have message_id
+            job = context.job_queue.run_repeating(
+                monitor_otp,
+                interval=2,
+                first=2,
+                chat_id=user_id,
+                data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': sent_msg.message_id}
+            )
+            user_jobs[user_id] = job
         except Exception as e:
             logger.error(f"Error in handle_message country selection: {e}")
             await update.message.reply_text(f"❌ Error: {str(e)}")
@@ -4171,35 +4197,32 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     if not service:
                         service = 'Unknown'
                     
-                    # Format number for display (remove + for display, keep digits only)
+                    # Format number for display (ensure + prefix as requested)
                     display_number = number
-                    if display_number.startswith('+'):
-                        display_number = display_number[1:]  # Remove + for display
-                    else:
+                    if not display_number.startswith('+'):
                         digits_only = ''.join(filter(str.isdigit, display_number))
-                        if len(digits_only) >= 10:
-                            display_number = digits_only
-                    
+                        display_number = '+' + (digits_only if digits_only else display_number)
+
                     # Get country flag and code
                     country_flag = get_country_flag(country)
                     country_code = get_country_code(country)
-                    
+
                     # Detect language from SMS content
                     language = detect_language_from_sms(sms_content) if sms_content else 'English'
                     motivation_line = html.escape(get_random_bn_otp_motivation())
-                    
+
                     # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
                     user_otp_msg = (
                         f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
                         f"<b>আজকের প্রেরণা:</b> {motivation_line}"
                     )
-                    
+
                     # Format OTP message for CHANNEL: "🇩🇰 #DK WhatsApp 4540XXXX81 English"
                     # Mask number for channel (middle digits with XXXX)
-                    masked_number = mask_number(number)
-                    if masked_number.startswith('+'):
-                        masked_number = masked_number[1:]  # Remove + for display
+                    masked_number = mask_number(display_number)
+                    if not masked_number.startswith('+'):
+                         masked_number = '+' + masked_number
                     channel_otp_msg = f"{country_flag} #{country_code} {service.capitalize()} {masked_number} {language}"
                     
                     # Build deep-link URL for the "Range" button (channel only)
