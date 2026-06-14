@@ -2852,7 +2852,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
-                    message_id=query.message.message_id,
+                    message_id=loading_message_id,
                     text=message,
                     reply_markup=reply_markup,
                     parse_mode='HTML'
@@ -3470,7 +3470,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'service': service_name,
                     'range_id': range_id,
                     'start_time': time.time(),
-                    'message_id': query.message.message_id
+                    'message_id': loading_message_id
                 }
                 if country_name:
                     job_data['country'] = country_name
