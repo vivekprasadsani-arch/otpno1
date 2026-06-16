@@ -2831,10 +2831,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Sort numbers for Ivory Coast (22507 priority)
                 numbers_list = sort_numbers_for_ivory_coast(numbers_list, country_name)
                 
+                # Format numbers with + prefix
+                formatted_numbers = []
+                for num in numbers_list:
+                    display_num = str(num)
+                    if not display_num.startswith('+'):
+                        digits_only = ''.join(filter(str.isdigit, display_num))
+                        display_num = '+' + (digits_only if digits_only else display_num)
+                    formatted_numbers.append(display_num)
+
                 # Store all numbers in session (comma-separated)
-                numbers_str = ','.join(numbers_list)
+                numbers_str = ','.join(formatted_numbers)
                 update_user_session(user_id, service_name, country, range_id, numbers_str, 1)
-                
+
                 # Start monitoring all numbers in background
                 # First, cancel any existing job to reset 15-min timer
                 if user_id in user_jobs:
@@ -2846,25 +2855,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 job = context.job_queue.run_repeating(
                     monitor_otp,
-                    interval=3,  # Increased to 3 seconds to prevent overlap
-                    first=3,
+                    interval=BOT_CONFIG['poll_interval'],
+                    first=1,
                     chat_id=user_id,
-                    data={'numbers': numbers_list, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': loading_message_id}
+                    data={'numbers': formatted_numbers, 'user_id': user_id, 'country': country, 'service': service_name, 'start_time': time.time(), 'message_id': loading_message_id}
                 )
                 user_jobs[user_id] = job  # Store job reference
-                
+
                 # Create inline keyboard with 5 numbers (click to copy using copy_text parameter)
                 keyboard = []
-                for i, num in enumerate(numbers_list, 1):
-                    # Format number for display (ensure + prefix as requested)
-                    display_num = num
-                    if not display_num.startswith('+'):
-                        digits_only = ''.join(filter(str.isdigit, display_num))
-                        display_num = '+' + (digits_only if digits_only else display_num)
+                for display_num in formatted_numbers:
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
                     keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
-                
                 # Get country flag
                 country_flag = get_country_flag(country_name)
                 
@@ -3450,7 +3453,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 keyboard = []
                 formatted_numbers = []
                 for num in numbers_list:
-                    display_num = num
+                    display_num = str(num)
                     if not display_num.startswith('+'):
                         digits_only = ''.join(filter(str.isdigit, display_num))
                         display_num = '+' + (digits_only if digits_only else display_num)
@@ -3462,8 +3465,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )])
                 
                 # Use hash for change numbers button too
-                change_hash = hashlib.md5(f"{service_name}_{range_id}".encode()).hexdigest()[:12]
-                context.user_data['range_mapping'][change_hash] = {'service': service_name, 'range_id': range_id}
+                if 'range_mapping' not in context.user_data:
+                    context.user_data['range_mapping'] = {}
+                change_hash = hashlib.md5(f"{service_name}_{range_id}_{range_name}".encode()).hexdigest()[:12]
+                context.user_data['range_mapping'][change_hash] = {
+                    'service': service_name, 
+                    'range_id': range_id,
+                    'range_name': range_name
+                }
                 keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
@@ -3481,7 +3490,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message_text = f"{service_icon} {service_name.upper()}\n"
                 if country_name:
                     message_text += f"{country_flag} {country_name}\n"
-                message_text += f"📋 Range: {range_id}\n\n"
+                message_text += f"📋 Range: {range_name}\n\n"
                 message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
                 message_text += "Tap a number to copy it."
                 
@@ -3509,30 +3518,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     first=1,
                     chat_id=user_id,
                     data={'numbers': formatted_numbers, 'user_id': user_id, 'country': country_name, 'service': service_name, 'start_time': time.time(), 'message_id': loading_message_id}
-                )
-                user_jobs[user_id] = job
-                # Start OTP monitoring job
-                if user_id in user_jobs:
-                    old_job = user_jobs[user_id]
-                    old_job.schedule_removal()
-                
-                # Add country to job data if available
-                job_data = {
-                    'user_id': user_id,
-                    'numbers': numbers_list,
-                    'service': service_name,
-                    'range_id': range_id,
-                    'start_time': time.time(),
-                    'message_id': loading_message_id
-                }
-                if country_name:
-                    job_data['country'] = country_name
-                
-                job = context.job_queue.run_repeating(
-                    monitor_otp,
-                    interval=3,
-                    first=5,
-                    data=job_data
                 )
                 user_jobs[user_id] = job
                 
@@ -3810,8 +3795,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Use hash for change numbers button
             if 'range_mapping' not in context.user_data:
                 context.user_data['range_mapping'] = {}
-            change_hash = hashlib.md5(f"{found_service}_{range_id}".encode()).hexdigest()[:12]
-            context.user_data['range_mapping'][change_hash] = {'service': found_service, 'range_id': range_id}
+            # For direct input, range_name is same as range_id usually
+            range_name = range_id 
+            change_hash = hashlib.md5(f"{found_service}_{range_id}_{range_name}".encode()).hexdigest()[:12]
+            context.user_data['range_mapping'][change_hash] = {
+                'service': found_service, 
+                'range_id': range_id,
+                'range_name': range_name
+            }
             keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
