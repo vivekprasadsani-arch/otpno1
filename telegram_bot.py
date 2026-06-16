@@ -114,6 +114,11 @@ except ImportError:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required. Please set it in Render environment variables.")
+
+BOT_CONFIG = {
+    'poll_interval': 3,  # Seconds between OTP checks
+}
+
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5742928021"))
 OTP_CHANNEL_ID = int(os.getenv("OTP_CHANNEL_ID", "-1003403204287"))  # Channel ID for forwarding OTP messages
 
