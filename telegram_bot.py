@@ -46,6 +46,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Colorful emojis to simulate colorful buttons
+COLOR_EMOJIS = ['🔴', '🔵', '🟢', '🟡', '🟣', '🟠', '⚪', '🟤', '🟥', '🟦', '🟩', '🟨', '🟧', '🟪', '🟫']
+
+def get_random_color_emoji():
+    """Return a random colorful emoji."""
+    return random.choice(COLOR_EMOJIS)
+
 
 def _build_bengali_proverb_pool(target_size=1000):
     """Build a deterministic pool of Bengali proverb-style motivation lines."""
@@ -2828,7 +2835,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + (digits_only if digits_only else display_num)
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
-                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                    keyboard.append([InlineKeyboardButton(f"{get_random_color_emoji()} {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
                 
                 # Get country flag
                 country_flag = get_country_flag(country_name)
@@ -3413,14 +3420,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Create inline keyboard with numbers (click-to-copy)
                 # Remove callback_data to allow copy_text to work properly
                 keyboard = []
+                formatted_numbers = []
                 for num in numbers_list:
                     display_num = num
                     if not display_num.startswith('+'):
                         digits_only = ''.join(filter(str.isdigit, display_num))
                         display_num = '+' + (digits_only if digits_only else display_num)
+                    formatted_numbers.append(display_num)
                     # Use copy_text via api_kwargs - no callback_data needed for copy
                     keyboard.append([InlineKeyboardButton(
-                        f"📱 {display_num}",
+                        f"{get_random_color_emoji()} {display_num}",
                         api_kwargs={"copy_text": {"text": display_num}}
                     )])
                 
@@ -3456,8 +3465,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 
                 # Store numbers and start monitoring
-                update_user_session(user_id, service=service_name, range_id=range_id, number=','.join(numbers_list), monitoring=1)
+                update_user_session(user_id, service=service_name, range_id=range_id, number=','.join(formatted_numbers), monitoring=1)
                 
+                # Start OTP monitoring job
+                if user_id in user_jobs:
+                    try:
+                        old_job = user_jobs[user_id]
+                        old_job.schedule_removal()
+                    except Exception as e:
+                        logger.error(f"Error cancelling old job: {e}")
+                
+                job = context.job_queue.run_repeating(
+                    monitor_otp,
+                    interval=BOT_CONFIG['poll_interval'],
+                    first=1,
+                    chat_id=user_id,
+                    data={'numbers': formatted_numbers, 'user_id': user_id, 'country': country_name, 'service': service_name, 'start_time': time.time(), 'message_id': loading_message_id}
+                )
+                user_jobs[user_id] = job
                 # Start OTP monitoring job
                 if user_id in user_jobs:
                     old_job = user_jobs[user_id]
@@ -3750,7 +3775,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + display_num
                 # Use copy_text via api_kwargs - no callback_data needed for copy
                 keyboard.append([InlineKeyboardButton(
-                    f"📱 {display_num}",
+                    f"{get_random_color_emoji()} {display_num}",
                     api_kwargs={"copy_text": {"text": display_num}}
                 )])
             
@@ -3947,7 +3972,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     display_num = '+' + (digits_only if digits_only else display_num)
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
-                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                keyboard.append([InlineKeyboardButton(f"{get_random_color_emoji()} {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
             
             # Get country flag
             country_flag = get_country_flag(country_name)
@@ -4239,11 +4264,11 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    user_keyboard = [[InlineKeyboardButton(f"{get_random_color_emoji()} {otp}", api_kwargs={"copy_text": {"text": otp}})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
+                    channel_row = [InlineKeyboardButton(f"{get_random_color_emoji()} {otp}", api_kwargs={"copy_text": {"text": otp}})]
                     if range_url:
                         channel_row.append(InlineKeyboardButton("Range", url=range_url))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
@@ -4392,7 +4417,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
                 
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
+            channel_row = [InlineKeyboardButton(f"{get_random_color_emoji()} {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
             if range_url:
                 channel_row.append(InlineKeyboardButton("Range", url=range_url))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
