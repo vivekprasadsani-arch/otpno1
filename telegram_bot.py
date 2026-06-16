@@ -1579,7 +1579,16 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         await update.message.reply_text("❌ No valid numbers received. Please try again.")
         return
 
-    country_name = detect_country_from_number(numbers_list[0]) or detect_country_from_range(selected_range) or 'Unknown'
+    # Format numbers with + prefix for consistency
+    formatted_numbers = []
+    for num in numbers_list:
+        display_num = str(num)
+        if not display_num.startswith('+'):
+            digits_only = ''.join(filter(str.isdigit, display_num))
+            display_num = '+' + (digits_only if digits_only else display_num)
+        formatted_numbers.append(display_num)
+
+    country_name = detect_country_from_number(formatted_numbers[0]) or detect_country_from_range(selected_range) or 'Unknown'
     found_service = (
         normalize_service_name(service_hint)
         or normalize_service_name(session.get('service') if session else None)
@@ -1587,10 +1596,10 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     )
 
     keyboard = []
-    for num in numbers_list:
+    for display_num in formatted_numbers:
         keyboard.append([InlineKeyboardButton(
-            f"📱 {num}",
-            api_kwargs={"copy_text": {"text": num}}
+            f"📱 {display_num}",
+            api_kwargs={"copy_text": {"text": display_num}}
         )])
 
     # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
@@ -1629,17 +1638,20 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         service=found_service,
         country=country_name,
         range_id=selected_range,
-        number=','.join(numbers_list),
+        number=','.join(formatted_numbers),
         monitoring=1
     )
 
     if user_id in user_jobs:
-        user_jobs[user_id].schedule_removal()
+        try:
+            user_jobs[user_id].schedule_removal()
+        except Exception as e:
+            logger.debug(f"Error removing old job in send_numbers_from_range_link: {e}")
 
     if context.job_queue:
         job_data = {
             'user_id': user_id,
-            'numbers': numbers_list,
+            'numbers': formatted_numbers,
             'service': found_service,
             'range_id': selected_range,
             'start_time': time.time(),
@@ -2203,7 +2215,10 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if target_id:
                 # Stop any latest monitoring job for this user
                 if target_id in user_jobs:
-                    user_jobs[target_id].schedule_removal()
+                    try:
+                        user_jobs[target_id].schedule_removal()
+                    except:
+                        pass
                     del user_jobs[target_id]
                 remove_user(target_id)
                 await update.message.reply_text(f"✅ User {target_id} removed successfully.")
@@ -3834,8 +3849,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Start OTP monitoring job
             if user_id in user_jobs:
-                old_job = user_jobs[user_id]
-                old_job.schedule_removal()
+                try:
+                    old_job = user_jobs[user_id]
+                    old_job.schedule_removal()
+                except Exception as e:
+                    logger.debug(f"Error removing old job in handle_direct_range_input: {e}")
             
             # Add country to job data if available
             # Store start_time in variable first to avoid scope issues
@@ -4059,7 +4077,10 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
     
     # Timeout after 15 minutes
     if time.time() - start_time > 900:  # 15 minutes = 900 seconds
-        job.schedule_removal()
+        try:
+            job.schedule_removal()
+        except:
+            pass
         if user_id in user_jobs:
             del user_jobs[user_id]
         update_user_session(user_id, monitoring=0)
@@ -4333,7 +4354,10 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     if all_received:
                         # All numbers received OTP, stop monitoring
                         logger.info(f"✅ All numbers received OTP for user {user_id}, stopping monitoring")
-                        job.schedule_removal()
+                        try:
+                            job.schedule_removal()
+                        except:
+                            pass
                         if user_id in user_jobs:
                             del user_jobs[user_id]
                         update_user_session(user_id, monitoring=0)
