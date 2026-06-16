@@ -46,13 +46,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Colorful emojis to simulate colorful buttons
-COLOR_EMOJIS = ['🔴', '🔵', '🟢', '🟡', '🟣', '🟠', '⚪', '🟤', '🟥', '🟦', '🟩', '🟨', '🟧', '🟪', '🟫']
-
-def get_random_color_emoji():
-    """Return a random colorful emoji."""
-    return random.choice(COLOR_EMOJIS)
-
 
 def _build_bengali_proverb_pool(target_size=1000):
     """Build a deterministic pool of Bengali proverb-style motivation lines."""
@@ -632,12 +625,6 @@ class APIClient:
                 logger.error(traceback.format_exc())
                 return False
     
-    def _normalize_range_token(self, value):
-        """Normalize any range-like token, preserving letters and underscores for IDs like b_42."""
-        if value is None:
-            return ""
-        return re.sub(r'[^A-Za-z0-9_\-]', '', str(value)).replace('x', 'X')
-
     def _normalize_country(self, raw_country, range_token="", number_token=""):
         """Prefer explicit country; fallback to number/range based detection."""
         country = str(raw_country or "").strip()
@@ -700,20 +687,26 @@ class APIClient:
             service_key = normalize_service_name(app_name_raw)
             service_label = primary_labels.get(service_key, app_name_raw)
 
-            raw_range = self._normalize_range_token(item.get('range'))
-            raw_number = self._normalize_range_token(item.get('number'))
-            raw_carrier = self._normalize_range_token(item.get('carrier'))
+            # Prioritize carrier as the most accurate base for ranges from this API
+            raw_carrier = normalize_range_token(item.get('carrier'))
+            raw_range = normalize_range_token(item.get('range'))
+            raw_number = normalize_range_token(item.get('number'))
 
-            range_token = raw_carrier or raw_range or raw_number
+            if raw_carrier and raw_carrier.isdigit() and len(raw_carrier) >= 4:
+                range_token = f"{raw_carrier}XXX"
+            else:
+                range_token = raw_range or raw_number
+                if range_token and range_token.isdigit() and len(range_token) >= 7:
+                    # If it's a full phone number, truncate last 3 digits to make it a range
+                    range_token = f"{range_token[:-3]}XXX"
+
             if not range_token:
                 continue
 
-            # If range_token is purely numeric and >= 7 digits, infer short range
-            if range_token.isdigit() and len(range_token) >= 7:
-                range_token = f"{range_token[:-3]}XXX"
-
-            # The new API might fail with 500 if XXX is appended. Keep the raw token.
+            # The new API might fail with 500 if XXX is missing. Ensure it has XXX suffix.
             range_for_api = range_token
+            if range_for_api.isdigit() and not range_for_api.endswith('XXX'):
+                range_for_api = f"{range_for_api}XXX"
 
             # Ignore clearly invalid short prefixes.
             if len(re.sub(r'[^0-9]', '', range_for_api)) < 4:
@@ -833,7 +826,7 @@ class APIClient:
                 if not self.login():
                     return None
 
-            normalized = self._normalize_range_token(range_id)
+            normalized = normalize_range_token(range_id)
             if not normalized:
                 return None
 
@@ -1703,29 +1696,40 @@ def sort_ranges_for_ivory_coast(ranges_list):
     return sorted_ranges
 
 def mask_number(number):
-    """Mask number middle digits with XXXX (e.g., +1234567890 -> +1234XXXX90)"""
+    """Mask only 3-4 middle digits, keeping range prefix and 3 digits at the end visible."""
     if not number:
         return number
-    
+
     # Remove + and spaces, keep only digits
     digits = ''.join(filter(str.isdigit, number))
     has_plus = number.startswith('+')
-    
-    if len(digits) < 6:
-        # Too short to mask, return as is
-        return number
-    
-    # Keep first 4 and last 2 digits, mask the middle
-    if len(digits) >= 6:
-        masked = digits[:4] + 'XXXX' + digits[-2:]
+
+    length = len(digits)
+    if length < 10:
+        if length > 6:
+            masked = digits[:3] + 'XXX' + digits[-2:]
+        else:
+            return number
     else:
-        masked = digits
-    
+        # For typical 10-13 digit numbers:
+        # Keep first 7 (range) and last 3, mask what's in between (usually 1-4 digits)
+        # For 13 digits (like +2250789185820): 7 + 3 (mask) + 3 = 13
+        # Result: +2250789XXX820
+        prefix = digits[:7]
+        suffix = digits[-3:]
+        mask_len = length - 10
+        if mask_len <= 0:
+            # At least mask something if it's 10 digits
+            masked = digits[:4] + 'XXX' + digits[-3:]
+        else:
+            masked = prefix + ('X' * max(3, mask_len)) + suffix
+
     # Add + back if it was there
     if has_plus:
         masked = '+' + masked
-    
+
     return masked
+
 
 def _strip_accents(text):
     """Normalize latin accents for matching."""
@@ -2011,7 +2015,24 @@ def build_console_channel_message(log_item):
     """Build channel message using legacy one-line channel template."""
     country = str(log_item.get('country') or 'Unknown').strip() or 'Unknown'
     service_raw = str(log_item.get('app_name') or 'Unknown').strip() or 'Unknown'
-    number_masked = str(log_item.get('number') or 'Unknown').strip() or 'Unknown'
+    
+    # Prioritize 'range' field for number extraction as it contains full number in this API
+    raw_range = str(log_item.get('range') or '').strip()
+    raw_number = str(log_item.get('number') or '').strip()
+    number_value = raw_range or raw_number or 'Unknown'
+    
+    # Format and mask the number
+    if number_value != 'Unknown':
+        # Ensure it has a + prefix for the mask_number function to handle properly
+        display_number = number_value
+        if not display_number.startswith('+'):
+            digits_only = ''.join(filter(str.isdigit, display_number))
+            display_number = '+' + (digits_only if digits_only else display_number)
+        
+        number_masked = mask_number(display_number)
+    else:
+        number_masked = 'Unknown'
+
     sms_content = str(log_item.get('sms') or '').strip()
     language = detect_language_from_sms(sms_content) if sms_content else 'English'
     service_key = normalize_service_name(service_raw)
@@ -2835,7 +2856,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + (digits_only if digits_only else display_num)
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
-                    keyboard.append([InlineKeyboardButton(f"{get_random_color_emoji()} {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
                 
                 # Get country flag
                 country_flag = get_country_flag(country_name)
@@ -3429,7 +3450,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     formatted_numbers.append(display_num)
                     # Use copy_text via api_kwargs - no callback_data needed for copy
                     keyboard.append([InlineKeyboardButton(
-                        f"{get_random_color_emoji()} {display_num}",
+                        f"📱 {display_num}",
                         api_kwargs={"copy_text": {"text": display_num}}
                     )])
                 
@@ -3775,7 +3796,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + display_num
                 # Use copy_text via api_kwargs - no callback_data needed for copy
                 keyboard.append([InlineKeyboardButton(
-                    f"{get_random_color_emoji()} {display_num}",
+                    f"📱 {display_num}",
                     api_kwargs={"copy_text": {"text": display_num}}
                 )])
             
@@ -3972,7 +3993,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     display_num = '+' + (digits_only if digits_only else display_num)
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
-                keyboard.append([InlineKeyboardButton(f"{get_random_color_emoji()} {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
             
             # Get country flag
             country_flag = get_country_flag(country_name)
@@ -4264,11 +4285,11 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"{get_random_color_emoji()} {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"{get_random_color_emoji()} {otp}", api_kwargs={"copy_text": {"text": otp}})]
+                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
                     if range_url:
                         channel_row.append(InlineKeyboardButton("Range", url=range_url))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
@@ -4404,20 +4425,23 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             channel_message = build_console_channel_message(log_item)
             masked_otp = extract_masked_otp_from_sms(sms_content) or "******"
-            raw_range = str(log_item.get('range') or '').strip()
-            raw_carrier = str(log_item.get('carrier') or '').strip()
-            raw_number = str(log_item.get('number') or '').strip()
             
-            # Prioritize carrier, then range, then number
-            range_value = raw_carrier or raw_range or raw_number
+            # Prioritize carrier as the most accurate base for ranges from this API
+            raw_carrier = normalize_range_token(log_item.get('carrier'))
+            raw_range = normalize_range_token(log_item.get('range'))
+            raw_number = normalize_range_token(log_item.get('number'))
             
-            # If it's a long purely numeric string, shorten it to match valid API range patterns
-            if range_value and range_value.isdigit() and len(range_value) >= 7:
-                range_value = f"{range_value[:-3]}XXX"
-                
+            if raw_carrier and raw_carrier.isdigit() and len(raw_carrier) >= 4:
+                range_value = f"{raw_carrier}XXX"
+            else:
+                range_value = raw_range or raw_number
+                if range_value and range_value.isdigit() and len(range_value) >= 7:
+                    # If it's a full phone number, truncate last 3 digits to make it a range
+                    range_value = f"{range_value[:-3]}XXX"
+            
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"{get_random_color_emoji()} {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
+            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
             if range_url:
                 channel_row.append(InlineKeyboardButton("Range", url=range_url))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
