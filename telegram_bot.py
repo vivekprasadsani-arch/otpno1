@@ -47,6 +47,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def normalize_range_token(value):
+    """Normalize any range-like token, preserving letters and underscores for IDs like b_42."""
+    if value is None:
+        return ""
+    return re.sub(r'[^A-Za-z0-9_\-]', '', str(value)).replace('x', 'X')
+
+
 def _build_bengali_proverb_pool(target_size=1000):
     """Build a deterministic pool of Bengali proverb-style motivation lines."""
     starters = [
