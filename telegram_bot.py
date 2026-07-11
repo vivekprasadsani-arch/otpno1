@@ -1615,7 +1615,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         'range_id': selected_range,
         'range_name': selected_range
     }
-    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
+    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     country_flag = get_country_flag(country_name)
@@ -2090,10 +2090,10 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Show service selection first (fixed three: WhatsApp, Facebook, Others)
     keyboard = [
-        [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
-        [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
-        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
-        [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
+        [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
+        [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -2126,9 +2126,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Show main menu buttons
         keyboard = [
-            [KeyboardButton("🚀 Get Number")],
-            [KeyboardButton("🎛 Number Count")],
-            [KeyboardButton("📈 My Stats")]
+            [KeyboardButton("🚀 Get Number", api_kwargs={"style": "success"})],
+            [KeyboardButton("🎛 Number Count", api_kwargs={"style": "primary"})],
+            [KeyboardButton("📈 My Stats", api_kwargs={"style": "primary"})]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         await update.message.reply_text(
@@ -2156,8 +2156,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = [
                 [
-                    InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}"),
-                    InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}")
+                    InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}", api_kwargs={"style": "success"}),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}", api_kwargs={"style": "danger"})
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2473,7 +2473,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      label = f"{svc} ({count})"
                      
                      # Callback: sel_others_{idx} (Changed from service_others to avoid conflict)
-                     row.append(InlineKeyboardButton(label, callback_data=f"sel_others_{idx}"))
+                     row.append(InlineKeyboardButton(label, callback_data=f"sel_others_{idx}", api_kwargs={"style": "primary"}))
                      
                      if len(row) == 2:
                          keyboard.append(row)
@@ -2486,13 +2486,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if total_pages > 1:
                     nav_row = []
                     if page > 0:
-                        nav_row.append(InlineKeyboardButton("◀️ Prev", callback_data="sel_others_prev"))
+                        nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="sel_others_prev"))
                     nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop"))
                     if page < total_pages - 1:
-                        nav_row.append(InlineKeyboardButton("Next ▶️", callback_data="sel_others_next"))
+                        nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="sel_others_next"))
                     keyboard.append(nav_row)
                 
-                keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+                keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
@@ -2581,17 +2581,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             flag1 = get_country_flag(c1)
             label1 = format_country_label(flag1, c1, time1)
             
-            row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}"))
+            row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}", api_kwargs={"style": "primary"}))
             
             if i + 1 < len(sorted_countries):
                 c2 = sorted_countries[i + 1]
                 _, time2 = get_country_best_time(c2)
                 flag2 = get_country_flag(c2)
                 label2 = format_country_label(flag2, c2, time2)
-                row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}"))
+                row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}", api_kwargs={"style": "primary"}))
             keyboard.append(row)
 
-        keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+        keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
@@ -2700,18 +2700,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 flag1 = get_country_flag(c1)
                 label1 = format_country_label(flag1, c1, time1)
                 
-                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}"))
+                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}", api_kwargs={"style": "primary"}))
                 
                 if i + 1 < len(sorted_countries):
                     c2 = sorted_countries[i + 1]
                     _, time2 = get_country_best_time(c2)
                     flag2 = get_country_flag(c2)
                     label2 = format_country_label(flag2, c2, time2)
-                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}"))
+                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}", api_kwargs={"style": "primary"}))
                 
                 keyboard.append(row)
                 
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="service_others")]) 
+            keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="service_others")]) 
             # Back goes to Main Others List (handled by service_others in main handler)
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2899,8 +2899,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
                 service_icon = service_icons.get(service_name, "📱")
                 
-                keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country}")])
-                keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+                keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country}", api_kwargs={"style": "success"})])
+                keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Format message like the reference image
@@ -3015,7 +3015,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Services", callback_data="rangechkr_service_others")])
+            keyboard.append([InlineKeyboardButton("🔙 Services", api_kwargs={"style": "danger"}, callback_data="rangechkr_service_others")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
@@ -3147,7 +3147,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'range_id_field': range_id_field1
                 }
                 display_name1 = range_name1[:20] + "..." if len(range_name1) > 20 else range_name1
-                row.append(InlineKeyboardButton(display_name1, callback_data=f"rng_{range_hash1}"))
+                row.append(InlineKeyboardButton(display_name1, callback_data=f"rng_{range_hash1}", api_kwargs={"style": "primary"}))
                 
                 if i + 1 < len(filtered_ranges):
                     range2 = filtered_ranges[i + 1]
@@ -3165,16 +3165,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'range_id_field': range_id_field2
                     }
                     display_name2 = range_name2[:20] + "..." if len(range_name2) > 20 else range_name2
-                    row.append(InlineKeyboardButton(display_name2, callback_data=f"rng_{range_hash2}"))
+                    row.append(InlineKeyboardButton(display_name2, callback_data=f"rng_{range_hash2}", api_kwargs={"style": "primary"}))
                 
                 keyboard.append(row)
             
             # Back Button
             if service_name.lower() in ['whatsapp', 'facebook']:
-                 keyboard.append([InlineKeyboardButton("🔙 Countries", callback_data=f"rangechkr_service_{service_name}")])
+                 keyboard.append([InlineKeyboardButton("🔙 Countries", api_kwargs={"style": "danger"}, callback_data=f"rangechkr_service_{service_name}")])
             else:
                  # For Others, just go back to App List for now
-                 keyboard.append([InlineKeyboardButton("🔙 Services", callback_data="rangechkr_service_others")])
+                 keyboard.append([InlineKeyboardButton("🔙 Services", api_kwargs={"style": "danger"}, callback_data="rangechkr_service_others")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -3250,7 +3250,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         label = f"{svc} ({count})"
                         
                         # Callback: rangechkr_others_{idx}
-                        row.append(InlineKeyboardButton(label, callback_data=f"rangechkr_others_{idx}"))
+                        row.append(InlineKeyboardButton(label, callback_data=f"rangechkr_others_{idx}", api_kwargs={"style": "primary"}))
                         
                         if len(row) == 2:
                             keyboard.append(row)
@@ -3263,13 +3263,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if total_pages > 1:
                         nav_row = []
                         if page > 0:
-                            nav_row.append(InlineKeyboardButton("◀️ Prev", callback_data="rangechkr_others_prev"))
+                            nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_prev"))
                         nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
                         if page < total_pages - 1:
-                            nav_row.append(InlineKeyboardButton("Next ▶️", callback_data="rangechkr_others_next"))
+                            nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_next"))
                         keyboard.append(nav_row)
                     
-                    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="rangechkr_back_services")])
+                    keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="rangechkr_back_services")])
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
@@ -3340,7 +3340,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Services", callback_data="rangechkr_back_services")])
+            keyboard.append([InlineKeyboardButton("🔙 Services", api_kwargs={"style": "danger"}, callback_data="rangechkr_back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             display_service_name = "Others" if service_name == "others" else service_name.upper()
@@ -3493,7 +3493,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'range_id': range_id,
                     'range_name': range_name
                 }
-                keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
+                keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Get country flag
@@ -3561,10 +3561,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Range checker back to services
     elif data == "rangechkr_back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others")]
+            [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
+            [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3575,10 +3575,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Back to services
     elif data == "back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others")]
+            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
+            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3600,10 +3600,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle "Get Number" button
     if text in ("Get Number", "📲 Get Number", "🚀 Get Number"):
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook")],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others")]
+            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
+            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -3728,7 +3728,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}"))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+            keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
@@ -3823,7 +3823,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'range_id': range_id,
                 'range_name': range_name
             }
-            keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}")])
+            keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Get country flag
@@ -3894,9 +3894,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text or "Back" in text:
         if "Back" in text:
             keyboard = [
-                [KeyboardButton("🚀 Get Number")],
-                [KeyboardButton("🎛 Number Count")],
-                [KeyboardButton("📈 My Stats")]
+                [KeyboardButton("🚀 Get Number", api_kwargs={"style": "success"})],
+                [KeyboardButton("🎛 Number Count", api_kwargs={"style": "primary"})],
+                [KeyboardButton("📈 My Stats", api_kwargs={"style": "primary"})]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             await update.message.reply_text(
@@ -4028,7 +4028,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             service_icon = service_icons.get(service_name, "📱")
             
             keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}")])
-            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_services")])
+            keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format message like the reference image
