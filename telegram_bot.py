@@ -1293,6 +1293,7 @@ COUNTRY_FLAGS = {
     'Ascension': '🇦🇨'
 }
 
+
 def detect_country_from_range(range_name):
     """Detect country from range name (e.g., 24491541XXXX -> Angola)"""
     if not range_name:
@@ -1604,7 +1605,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     for display_num in formatted_numbers:
         keyboard.append([InlineKeyboardButton(
             f"📱 {display_num}",
-            api_kwargs={"copy_text": {"text": display_num}}
+            api_kwargs={"copy_text": {"text": display_num}, "style": "success"}
         )])
 
     # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
@@ -2487,7 +2488,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     nav_row = []
                     if page > 0:
                         nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="sel_others_prev"))
-                    nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop"))
+                    nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop", api_kwargs={"style": "danger"}))
                     if page < total_pages - 1:
                         nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="sel_others_next"))
                     keyboard.append(nav_row)
@@ -2887,7 +2888,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for display_num in formatted_numbers:
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
-                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}, "style": "success"})])
                 # Get country flag
                 country_flag = get_country_flag(country_name)
                 
@@ -3005,13 +3006,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 flag1 = get_country_flag(country_list[i])
                 row.append(InlineKeyboardButton(
                     f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}"
+                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}",
+                    api_kwargs={"style": "primary"}
                 ))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
                     row.append(InlineKeyboardButton(
                         f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}"
+                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}",
+                        api_kwargs={"style": "primary"}
                     ))
                 keyboard.append(row)
             
@@ -3264,7 +3267,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         nav_row = []
                         if page > 0:
                             nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_prev"))
-                        nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
+                        nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop", api_kwargs={"style": "danger"}))
                         if page < total_pages - 1:
                             nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_next"))
                         keyboard.append(nav_row)
@@ -3330,13 +3333,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 flag1 = get_country_flag(country_list[i])
                 row.append(InlineKeyboardButton(
                     f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}"
+                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}",
+                    api_kwargs={"style": "primary"}
                 ))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
                     row.append(InlineKeyboardButton(
                         f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}"
+                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}",
+                        api_kwargs={"style": "primary"}
                     ))
                 keyboard.append(row)
             
@@ -3481,7 +3486,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Use copy_text via api_kwargs - no callback_data needed for copy
                     keyboard.append([InlineKeyboardButton(
                         f"📱 {display_num}",
-                        api_kwargs={"copy_text": {"text": display_num}}
+                        api_kwargs={"copy_text": {"text": display_num}, "style": "success"}
                     )])
                 
                 # Use hash for change numbers button too
@@ -3619,11 +3624,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_count = session.get('number_count', 2) if session else 2
         
         keyboard = [
-            [InlineKeyboardButton("1", callback_data="set_count_1"),
-             InlineKeyboardButton("2", callback_data="set_count_2"),
-             InlineKeyboardButton("3", callback_data="set_count_3")],
-            [InlineKeyboardButton("4", callback_data="set_count_4"),
-             InlineKeyboardButton("5", callback_data="set_count_5")]
+            [InlineKeyboardButton("1️⃣", callback_data="set_count_1", api_kwargs={"style": "primary"}),
+             InlineKeyboardButton("2️⃣", callback_data="set_count_2", api_kwargs={"style": "primary"}),
+             InlineKeyboardButton("3️⃣", callback_data="set_count_3", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("4️⃣", callback_data="set_count_4", api_kwargs={"style": "primary"}),
+             InlineKeyboardButton("5️⃣", callback_data="set_count_5", api_kwargs={"style": "primary"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -3722,10 +3727,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(country_list), 2):
                 row = []
                 flag1 = get_country_flag(country_list[i])
-                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}"))
+                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}", api_kwargs={"style": "primary"}))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
-                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}"))
+                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}", api_kwargs={"style": "primary"}))
                 keyboard.append(row)
             
             keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
@@ -3809,7 +3814,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Use copy_text via api_kwargs - no callback_data needed for copy
                 keyboard.append([InlineKeyboardButton(
                     f"📱 {display_num}",
-                    api_kwargs={"copy_text": {"text": display_num}}
+                    api_kwargs={"copy_text": {"text": display_num}, "style": "success"}
                 )])
             
             # Use hash for change numbers button
@@ -4014,7 +4019,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     display_num = '+' + (digits_only if digits_only else display_num)
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
-                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}, "style": "success"})])
             
             # Get country flag
             country_flag = get_country_flag(country_name)
@@ -4027,7 +4032,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             service_icon = service_icons.get(service_name, "📱")
             
-            keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}")])
+            keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}", api_kwargs={"style": "success"})])
             keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -4108,9 +4113,10 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             for num in numbers:
                 status_label = "OTP" if num in received_otps else "Expired"
                 button_label = f"📱 {num} ({status_label})"
+                btn_style = "success" if num in received_otps else "danger"
                 keyboard.append([InlineKeyboardButton(
                     button_label,
-                    api_kwargs={"copy_text": {"text": num}}
+                    api_kwargs={"copy_text": {"text": num}, "style": btn_style}
                 )])
                 status_lines.append(f"{num} - {status_label}")
 
@@ -4309,13 +4315,14 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]]
+                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]]
+
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}})]
+                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
                     if range_url:
-                        channel_row.append(InlineKeyboardButton("Range", url=range_url))
+                        channel_row.append(InlineKeyboardButton("🚀 Range", url=range_url, api_kwargs={"style": "primary"}))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
                     
                     # Send OTP message to user FIRST (important!)
@@ -4468,9 +4475,9 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
+            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}, "style": "success"})]
             if range_url:
-                channel_row.append(InlineKeyboardButton("Range", url=range_url))
+                channel_row.append(InlineKeyboardButton("🚀 Range", url=range_url, api_kwargs={"style": "primary"}))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
 
             try:
