@@ -4320,7 +4320,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
+                    channel_row = [InlineKeyboardButton("🔐 Copy OTP", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
                     if range_url:
                         channel_row.append(InlineKeyboardButton("🚀 Range", url=range_url, api_kwargs={"style": "primary"}))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
