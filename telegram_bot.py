@@ -22,6 +22,32 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from flask import Flask
 
+# Premium emoji helper - loads mappings from premium_emojis.json
+_PREMIUM_EMOJI_MAP = None
+
+def pe(emoji_char):
+    """Return premium emoji HTML tag for a standard emoji character.
+    Usage: pe('💬') -> '<tg-emoji emoji-id="5233376087777501917">💬</tg-emoji>'
+    In f-strings: f"{pe('💬')} WhatsApp"
+    """
+    global _PREMIUM_EMOJI_MAP
+    if _PREMIUM_EMOJI_MAP is None:
+        try:
+            json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'premium_emojis.json')
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            _PREMIUM_EMOJI_MAP = {}
+            for category in data.values():
+                _PREMIUM_EMOJI_MAP.update(category)
+        except Exception:
+            _PREMIUM_EMOJI_MAP = {}
+    eid = _PREMIUM_EMOJI_MAP.get(emoji_char)
+    if eid:
+        return f'<tg-emoji emoji-id="{eid}">{emoji_char}</tg-emoji>'
+    return emoji_char
+
+
+
 # Load environment variables
 load_dotenv()
 
@@ -148,7 +174,7 @@ def init_database():
     try:
         # Test connection
         result = supabase.table('users').select('user_id').limit(1).execute()
-        logger.info("✅ Supabase connection successful")
+        logger.info("pe('✅') Supabase connection successful")
     except Exception as e:
         logger.warning(f"⚠️ Supabase connection test failed (tables may not exist yet): {e}")
 
@@ -979,9 +1005,9 @@ class APIClient:
                 time.sleep(1)
         
         if not numbers:
-            logger.error(f"❌ Failed to get any valid numbers from range {range_id} after {total_attempts} attempts.")
+            logger.error(f"pe('❌') Failed to get any valid numbers from range {range_id} after {total_attempts} attempts.")
         else:
-            logger.info(f"✅ Successfully obtained {len(numbers)}/{count} numbers for range {range_id}.")
+            logger.info(f"pe('✅') Successfully obtained {len(numbers)}/{count} numbers for range {range_id}.")
             
         return numbers
     
@@ -1239,60 +1265,59 @@ COUNTRY_CODES = {
 
 # Comprehensive Country flags mapping (all countries)
 COUNTRY_FLAGS = {
-    'Angola': '🇦🇴', 'Afghanistan': '🇦🇫', 'Albania': '🇦🇱', 'Algeria': '🇩🇿',
-    'Andorra': '🇦🇩', 'Argentina': '🇦🇷', 'Armenia': '🇦🇲', 'Aruba': '🇦🇼',
-    'Australia': '🇦🇺', 'Austria': '🇦🇹', 'Azerbaijan': '🇦🇿', 'Bahrain': '🇧🇭',
-    'Bangladesh': '🇧🇩', 'Belarus': '🇧🇾', 'Belgium': '🇧🇪', 'Belize': '🇧🇿',
-    'Benin': '🇧🇯', 'Bhutan': '🇧🇹', 'Bolivia': '🇧🇴', 'Bosnia': '🇧🇦',
-    'Botswana': '🇧🇼', 'Brazil': '🇧🇷', 'Brunei': '🇧🇳', 'Bulgaria': '🇧🇬',
-    'Burkina Faso': '🇧🇫', 'Burundi': '🇧🇮', 'Cameroon': '🇨🇲', 'Cambodia': '🇰🇭', 'Canada': '🇨🇦',
-    'Chile': '🇨🇱', 'China': '🇨🇳', 'Colombia': '🇨🇴', 'Congo': '🇨🇬',
-    'Costa Rica': '🇨🇷', 'Croatia': '🇭🇷', 'Cuba': '🇨🇺', 'Cyprus': '🇨🇾',
-    'Central African Republic': '🇨🇫', 'Chad': '🇹🇩', 'Nigeria': '🇳🇬', 'Cape Verde': '🇨🇻', 'Sao Tome and Principe': '🇸🇹',
-    'Czech Republic': '🇨🇿', 'DR Congo': '🇨🇩', 'Denmark': '🇩🇰', 'Djibouti': '🇩🇯',
-    'Ecuador': '🇪🇨', 'Egypt': '🇪🇬', 'El Salvador': '🇸🇻', 'Equatorial Guinea': '🇬🇶',
-    'Eritrea': '🇪🇷', 'Estonia': '🇪🇪', 'Ethiopia': '🇪🇹', 'Fiji': '🇫🇯',
-    'Finland': '🇫🇮', 'France': '🇫🇷', 'French Guiana': '🇬🇫', 'Gabon': '🇬🇦',
-    'Gambia': '🇬🇲', 'Georgia': '🇬🇪', 'Germany': '🇩🇪', 'Ghana': '🇬🇭',
-    'Gibraltar': '🇬🇮', 'Greece': '🇬🇷', 'Greenland': '🇬🇱', 'Guadeloupe': '🇬🇵',
-    'Guatemala': '🇬🇹', 'Guinea': '🇬🇳', 'Guinea-Bissau': '🇬🇼', 'Guyana': '🇬🇾',
-    'Haiti': '🇭🇹', 'Honduras': '🇭🇳', 'Hong Kong': '🇭🇰', 'Hungary': '🇭🇺',
-    'Iceland': '🇮🇸', 'India': '🇮🇳', 'Indonesia': '🇮🇩', 'Iran': '🇮🇷',
-    'Iraq': '🇮🇶', 'Ireland': '🇮🇪', 'Israel': '🇮🇱', 'Italy': '🇮🇹',
-    'Ivory Coast': '🇨🇮', 'Japan': '🇯🇵', 'Jordan': '🇯🇴', 'Kenya': '🇰🇪',
-    'Kiribati': '🇰🇮', 'Kosovo': '🇽🇰', 'Kuwait': '🇰🇼', 'Kyrgyzstan': '🇰🇬',
-    'Laos': '🇱🇦', 'Latvia': '🇱🇻', 'Lebanon': '🇱🇧', 'Lesotho': '🇱🇸',
-    'Liberia': '🇱🇷', 'Libya': '🇱🇾', 'Liechtenstein': '🇱🇮', 'Lithuania': '🇱🇹',
-    'Luxembourg': '🇱🇺', 'Macau': '🇲🇴', 'Macedonia': '🇲🇰', 'Madagascar': '🇲🇬',
-    'Malawi': '🇲🇼', 'Malaysia': '🇲🇾', 'Maldives': '🇲🇻', 'Mali': '🇲🇱',
-    'Malta': '🇲🇹', 'Martinique': '🇲🇶', 'Mauritania': '🇲🇷', 'Mauritius': '🇲🇺',
-    'Mexico': '🇲🇽', 'Moldova': '🇲🇩', 'Monaco': '🇲🇨', 'Mongolia': '🇲🇳',
-    'Montenegro': '🇲🇪', 'Morocco': '🇲🇦', 'Mozambique': '🇲🇿', 'Myanmar': '🇲🇲',
-    'Namibia': '🇳🇦', 'Nauru': '🇳🇷', 'Nepal': '🇳🇵', 'Netherlands': '🇳🇱',
-    'New Caledonia': '🇳🇨', 'New Zealand': '🇳🇿', 'Nicaragua': '🇳🇮', 'Niger': '🇳🇪',
-    'Nigeria': '🇳🇬', 'North Korea': '🇰🇵', 'Norway': '🇳🇴', 'Oman': '🇴🇲',
-    'Pakistan': '🇵🇰', 'Palau': '🇵🇼', 'Palestine': '🇵🇸', 'Panama': '🇵🇦',
-    'Papua New Guinea': '🇵🇬', 'Paraguay': '🇵🇾', 'Peru': '🇵🇪', 'Philippines': '🇵🇭',
-    'Poland': '🇵🇱', 'Portugal': '🇵🇹', 'Qatar': '🇶🇦', 'Reunion': '🇷🇪',
-    'Romania': '🇷🇴', 'Russia': '🇷🇺', 'Rwanda': '🇷🇼', 'Saudi Arabia': '🇸🇦',
-    'Senegal': '🇸🇳', 'Serbia': '🇷🇸', 'Seychelles': '🇸🇨', 'Sierra Leone': '🇸🇱',
-    'Singapore': '🇸🇬', 'Slovakia': '🇸🇰', 'Slovenia': '🇸🇮', 'Solomon Islands': '🇸🇧',
-    'Somalia': '🇸🇴', 'South Africa': '🇿🇦', 'South Korea': '🇰🇷', 'Spain': '🇪🇸',
-    'Sri Lanka': '🇱🇰', 'Sudan': '🇸🇩', 'Suriname': '🇸🇷', 'Swaziland': '🇸🇿',
-    'Sweden': '🇸🇪', 'Switzerland': '🇨🇭', 'Syria': '🇸🇾', 'Taiwan': '🇹🇼',
-    'Tajikistan': '🇹🇯', 'Tanzania': '🇹🇿', 'Thailand': '🇹🇭', 'Togo': '🇹🇬',
-    'Tonga': '🇹🇴', 'Tunisia': '🇹🇳', 'Turkey': '🇹🇷', 'Turkmenistan': '🇹🇲',
-    'Tuvalu': '🇹🇻', 'UAE': '🇦🇪', 'Uganda': '🇺🇬', 'UK': '🇬🇧',
-    'Ukraine': '🇺🇦', 'Uruguay': '🇺🇾', 'USA': '🇺🇸', 'Uzbekistan': '🇺🇿',
-    'Vanuatu': '🇻🇺', 'Venezuela': '🇻🇪', 'Vietnam': '🇻🇳', 'Yemen': '🇾🇪',
-    'Zambia': '🇿🇲', 'Zimbabwe': '🇿🇼', 'Comoros': '🇰🇲', 'East Timor': '🇹🇱',
-    'Falkland Islands': '🇫🇰', 'Faroe Islands': '🇫🇴', 'French Polynesia': '🇵🇫',
-    'Guinea-Bissau': '🇬🇼', 'Saint Helena': '🇸🇭', 'Saint Pierre': '🇵🇲',
-    'Wallis': '🇼🇫', 'Cook Islands': '🇨🇰', 'Niue': '🇳🇺', 'Samoa': '🇼🇸',
+    'Angola': pe('🇦🇴'), 'Afghanistan': pe('🇦🇫'), 'Albania': pe('🇦🇱'), 'Algeria': pe('🇩🇿'),
+    'Andorra': pe('🇦🇩'), 'Argentina': pe('🇦🇷'), 'Armenia': pe('🇦🇲'), 'Aruba': '🇦🇼',
+    'Australia': pe('🇦🇺'), 'Austria': pe('🇦🇹'), 'Azerbaijan': pe('🇦🇿'), 'Bahrain': pe('🇧🇭'),
+    'Bangladesh': pe('🇧🇩'), 'Belarus': pe('🇧🇾'), 'Belgium': pe('🇧🇪'), 'Belize': pe('🇧🇿'),
+    'Benin': pe('🇧🇯'), 'Bhutan': pe('🇧🇹'), 'Bolivia': pe('🇧🇴'), 'Bosnia': pe('🇧🇦'),
+    'Botswana': pe('🇧🇼'), 'Brazil': pe('🇧🇷'), 'Brunei': pe('🇧🇳'), 'Bulgaria': pe('🇧🇬'),
+    'Burkina Faso': pe('🇧🇫'), 'Burundi': pe('🇧🇮'), 'Cameroon': pe('🇨🇲'), 'Cambodia': pe('🇰🇭'), 'Canada': pe('🇨🇦'),
+    'Chile': pe('🇨🇱'), 'China': pe('🇨🇳'), 'Colombia': pe('🇨🇴'), 'Congo': pe('🇨🇬'),
+    'Costa Rica': pe('🇨🇷'), 'Croatia': pe('🇭🇷'), 'Cuba': '🇨🇺', 'Cyprus': pe('🇨🇾'),
+    'Central African Republic': pe('🇨🇫'), 'Chad': pe('🇹🇩'), 'Nigeria': pe('🇳🇬'), 'Cape Verde': pe('🇨🇻'), 'Sao Tome and Principe': pe('🇸🇹'),
+    'Czech Republic': pe('🇨🇿'), 'DR Congo': pe('🇨🇩'), 'Denmark': pe('🇩🇰'), 'Djibouti': pe('🇩🇯'),
+    'Ecuador': pe('🇪🇨'), 'Egypt': pe('🇪🇬'), 'El Salvador': '🇸🇻', 'Equatorial Guinea': pe('🇬🇶'),
+    'Eritrea': '🇪🇷', 'Estonia': pe('🇪🇪'), 'Ethiopia': pe('🇪🇹'), 'Fiji': pe('🇫🇯'),
+    'Finland': pe('🇫🇮'), 'France': pe('🇫🇷'), 'French Guiana': '🇬🇫', 'Gabon': pe('🇬🇦'),
+    'Gambia': pe('🇬🇲'), 'Georgia': pe('🇬🇪'), 'Germany': pe('🇩🇪'), 'Ghana': pe('🇬🇭'),
+    'Gibraltar': '🇬🇮', 'Greece': pe('🇬🇷'), 'Greenland': '🇬🇱', 'Guadeloupe': '🇬🇵',
+    'Guatemala': pe('🇬🇹'), 'Guinea': pe('🇬🇳'), 'Guinea-Bissau': pe('🇬🇼'), 'Guyana': pe('🇬🇾'),
+    'Haiti': pe('🇭🇹'), 'Honduras': pe('🇭🇳'), 'Hong Kong': '🇭🇰', 'Hungary': pe('🇭🇺'),
+    'Iceland': pe('🇮🇸'), 'India': pe('🇮🇳'), 'Indonesia': pe('🇮🇩'), 'Iran': pe('🇮🇷'),
+    'Iraq': pe('🇮🇶'), 'Ireland': pe('🇮🇪'), 'Israel': pe('🇮🇱'), 'Italy': pe('🇮🇹'),
+    'Ivory Coast': '🇨🇮', 'Japan': pe('🇯🇵'), 'Jordan': pe('🇯🇴'), 'Kenya': pe('🇰🇪'),
+    'Kiribati': pe('🇰🇮'), 'Kosovo': pe('🇽🇰'), 'Kuwait': pe('🇰🇼'), 'Kyrgyzstan': pe('🇰🇬'),
+    'Laos': pe('🇱🇦'), 'Latvia': pe('🇱🇻'), 'Lebanon': pe('🇱🇧'), 'Lesotho': pe('🇱🇸'),
+    'Liberia': pe('🇱🇷'), 'Libya': pe('🇱🇾'), 'Liechtenstein': '🇱🇮', 'Lithuania': pe('🇱🇹'),
+    'Luxembourg': pe('🇱🇺'), 'Macau': '🇲🇴', 'Macedonia': pe('🇲🇰'), 'Madagascar': pe('🇲🇬'),
+    'Malawi': '🇲🇼', 'Malaysia': pe('🇲🇾'), 'Maldives': pe('🇲🇻'), 'Mali': pe('🇲🇱'),
+    'Malta': pe('🇲🇹'), 'Martinique': pe('🇲🇶'), 'Mauritania': '🇲🇷', 'Mauritius': pe('🇲🇺'),
+    'Mexico': pe('🇲🇽'), 'Moldova': pe('🇲🇩'), 'Monaco': pe('🇲🇨'), 'Mongolia': pe('🇲🇳'),
+    'Montenegro': pe('🇲🇪'), 'Morocco': pe('🇲🇦'), 'Mozambique': pe('🇲🇿'), 'Myanmar': '🇲🇲',
+    'Namibia': pe('🇳🇦'), 'Nauru': '🇳🇷', 'Nepal': pe('🇳🇵'), 'Netherlands': pe('🇳🇱'),
+    'New Caledonia': '🇳🇨', 'New Zealand': pe('🇳🇿'), 'Nicaragua': '🇳🇮', 'Niger': pe('🇳🇪'),
+    'Nigeria': pe('🇳🇬'), 'North Korea': '🇰🇵', 'Norway': pe('🇳🇴'), 'Oman': pe('🇴🇲'),
+    'Pakistan': pe('🇵🇰'), 'Palau': '🇵🇼', 'Palestine': pe('🇵🇸'), 'Panama': pe('🇵🇦'),
+    'Papua New Guinea': pe('🇵🇬'), 'Paraguay': pe('🇵🇾'), 'Peru': pe('🇵🇪'), 'Philippines': pe('🇵🇭'),
+    'Poland': pe('🇵🇱'), 'Portugal': pe('🇵🇹'), 'Qatar': pe('🇶🇦'), 'Reunion': '🇷🇪',
+    'Romania': pe('🇷🇴'), 'Russia': pe('🇷🇺'), 'Rwanda': pe('🇷🇼'), 'Saudi Arabia': pe('🇸🇦'),
+    'Senegal': pe('🇸🇳'), 'Serbia': pe('🇷🇸'), 'Seychelles': pe('🇸🇨'), 'Sierra Leone': pe('🇸🇱'),
+    'Singapore': pe('🇸🇬'), 'Slovakia': pe('🇸🇰'), 'Slovenia': pe('🇸🇮'), 'Solomon Islands': pe('🇸🇧'),
+    'Somalia': pe('🇸🇴'), 'South Africa': pe('🇿🇦'), 'South Korea': pe('🇰🇷'), 'Spain': pe('🇪🇸'),
+    'Sri Lanka': pe('🇱🇰'), 'Sudan': pe('🇸🇩'), 'Suriname': pe('🇸🇷'), 'Swaziland': pe('🇸🇿'),
+    'Sweden': pe('🇸🇪'), 'Switzerland': pe('🇨🇭'), 'Syria': '🇸🇾', 'Taiwan': '🇹🇼',
+    'Tajikistan': pe('🇹🇯'), 'Tanzania': pe('🇹🇿'), 'Thailand': pe('🇹🇭'), 'Togo': pe('🇹🇬'),
+    'Tonga': '🇹🇴', 'Tunisia': pe('🇹🇳'), 'Turkey': pe('🇹🇷'), 'Turkmenistan': pe('🇹🇲'),
+    'Tuvalu': '🇹🇻', 'UAE': pe('🇦🇪'), 'Uganda': pe('🇺🇬'), 'UK': pe('🇬🇧'),
+    'Ukraine': pe('🇺🇦'), 'Uruguay': pe('🇺🇾'), 'USA': pe('🇺🇸'), 'Uzbekistan': pe('🇺🇿'),
+    'Vanuatu': pe('🇻🇺'), 'Venezuela': '🇻🇪', 'Vietnam': pe('🇻🇳'), 'Yemen': pe('🇾🇪'),
+    'Zambia': pe('🇿🇲'), 'Zimbabwe': pe('🇿🇼'), 'Comoros': pe('🇰🇲'), 'East Timor': pe('🇹🇱'),
+    'Falkland Islands': '🇫🇰', 'Faroe Islands': pe('🇫🇴'), 'French Polynesia': '🇵🇫',
+    'Guinea-Bissau': pe('🇬🇼'), 'Saint Helena': '🇸🇭', 'Saint Pierre': '🇵🇲',
+    'Wallis': '🇼🇫', 'Cook Islands': '🇨🇰', 'Niue': '🇳🇺', 'Samoa': pe('🇼🇸'),
     'Antarctica': '🇦🇶', 'Netherlands Antilles': '🇦🇼', 'Diego Garcia': '🇮🇴',
     'Ascension': '🇦🇨'
 }
-
 
 def detect_country_from_range(range_name):
     """Detect country from range name (e.g., 24491541XXXX -> Angola)"""
@@ -1545,7 +1570,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     user_id = update.effective_user.id
     api_client = get_global_api_client()
     if not api_client:
-        await update.message.reply_text("❌ API connection error. Please try again.")
+        await update.message.reply_text("pe('❌') API connection error. Please try again.")
         return
 
     session = get_user_session(user_id)
@@ -1553,7 +1578,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     base_range = _sanitize_start_token(range_value, max_len=40).replace('x', 'X')
 
     if len(base_range) < 4:
-        await update.message.reply_text("❌ Invalid range.")
+        await update.message.reply_text("pe('❌') Invalid range.")
         return
 
     # Fast path for range-button links: console ranges often come without XXX.
@@ -1572,7 +1597,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
             break
 
     if not numbers_data:
-        await update.message.reply_text(f"❌ Failed to get numbers for range {base_range}.")
+        await update.message.reply_text(f"pe('❌') Failed to get numbers for range {base_range}.")
         return
 
     numbers_list = []
@@ -1582,7 +1607,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
             numbers_list.append(number)
 
     if not numbers_list:
-        await update.message.reply_text("❌ No valid numbers received. Please try again.")
+        await update.message.reply_text("pe('❌') No valid numbers received. Please try again.")
         return
 
     # Format numbers with + prefix for consistency
@@ -1604,8 +1629,8 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     keyboard = []
     for display_num in formatted_numbers:
         keyboard.append([InlineKeyboardButton(
-            f"📱 {display_num}",
-            api_kwargs={"copy_text": {"text": display_num}, "style": "success"}
+            f"pe('📱') {display_num}",
+            api_kwargs={"copy_text": {"text": display_num}}
         )])
 
     # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
@@ -1616,21 +1641,21 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         'range_id': selected_range,
         'range_name': selected_range
     }
-    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
+    keyboard.append([InlineKeyboardButton("pe('🔄') Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     country_flag = get_country_flag(country_name)
     service_icons = {
-        "whatsapp": "💬",
+        "whatsapp": "pe('💬')",
         "facebook": "👥",
-        "telegram": "✈️"
+        "telegram": "pe('✈️')"
     }
-    service_icon = service_icons.get(found_service, "📱")
+    service_icon = service_icons.get(found_service, "pe('📱')")
     message_text = (
         f"{service_icon} {found_service.upper()}\n"
         f"{country_flag} {country_name}\n"
-        f"📋 Range: {selected_range}\n\n"
-        f"✅ {len(numbers_list)} numbers received:\n\n"
+        f"pe('📋') Range: {selected_range}\n\n"
+        f"pe('✅') {len(numbers_list)} numbers received:\n\n"
         "Tap a number to copy it."
     )
 
@@ -2080,21 +2105,21 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is approved
     status = get_user_status(user_id)
     if status != 'approved':
-        await update.message.reply_text("❌ Your access is pending approval.")
+        await update.message.reply_text("pe('❌') Your access is pending approval.")
         return
     
     # Get global API client
     api_client = get_global_api_client()
     if not api_client:
-        await update.message.reply_text("❌ API connection error. Please try again.")
+        await update.message.reply_text("pe('❌') API connection error. Please try again.")
         return
     
     # Show service selection first (fixed three: WhatsApp, Facebook, Others)
     keyboard = [
-        [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
+        [InlineKeyboardButton("pe('💬') WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
         [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"style": "primary"})],
-        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
-        [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
+        [InlineKeyboardButton("pe('✈️') Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("pe('✨') Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -2127,9 +2152,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Show main menu buttons
         keyboard = [
-            [KeyboardButton("🚀 Get Number", api_kwargs={"style": "success"})],
-            [KeyboardButton("🎛 Number Count", api_kwargs={"style": "primary"})],
-            [KeyboardButton("📈 My Stats", api_kwargs={"style": "primary"})]
+            [KeyboardButton("pe('🚀') Get Number", api_kwargs={"style": "success"})],
+            [KeyboardButton("pe('🎛') Number Count", api_kwargs={"style": "primary"})],
+            [KeyboardButton("pe('📈') My Stats", api_kwargs={"style": "primary"})]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         await update.message.reply_text(
@@ -2143,10 +2168,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # If user opened bot from channel "Range" button, fetch numbers immediately.
         if deep_link_range:
-            await update.message.reply_text(f"⏳ Processing range: {deep_link_range}")
+            await update.message.reply_text(f"pe('⏳') Processing range: {deep_link_range}")
             await send_numbers_from_range_link(update, context, deep_link_range, deep_link_service)
     elif status == 'rejected':
-        await update.message.reply_text("❌ Your access has been rejected. Please contact admin.")
+        await update.message.reply_text("pe('❌') Your access has been rejected. Please contact admin.")
     else:
         # Notify admin
         try:
@@ -2157,8 +2182,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = [
                 [
-                    InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}", api_kwargs={"style": "success"}),
-                    InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}", api_kwargs={"style": "danger"})
+                    InlineKeyboardButton("pe('✅') Approve", callback_data=f"admin_approve_{user_id}", api_kwargs={"style": "success"}),
+                    InlineKeyboardButton("pe('❌') Reject", callback_data=f"admin_reject_{user_id}", api_kwargs={"style": "danger"})
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2172,7 +2197,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error notifying admin: {e}")
         
         await update.message.reply_text(
-            "⏳ Your request has been sent to admin. Please wait for approval."
+            "pe('⏳') Your request has been sent to admin. Please wait for approval."
         )
 
 async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2180,7 +2205,7 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if user_id != ADMIN_USER_ID:
-        await update.message.reply_text("❌ Access denied. Admin only.")
+        await update.message.reply_text("pe('❌') Access denied. Admin only.")
         return
     
     command = update.message.text.split()[0] if update.message.text else ""
@@ -2188,10 +2213,10 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if command == "/users":
         users = get_all_users()
         if not users:
-            await update.message.reply_text("📋 No users found.")
+            await update.message.reply_text("pe('📋') No users found.")
             return
         
-        message = "📋 All Users:\n\n"
+        message = "pe('📋') All Users:\n\n"
         for uid, uname, status in users:
             message += f"ID: {uid}\n"
             message += f"Username: @{uname or 'N/A'}\n"
@@ -2211,9 +2236,9 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Ensure user exists (username unknown here) then approve
             add_user(target_id, username=None)
             approve_user(target_id)
-            await update.message.reply_text(f"✅ User {target_id} approved/added successfully.")
+            await update.message.reply_text(f"pe('✅') User {target_id} approved/added successfully.")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            await update.message.reply_text(f"pe('❌') Error: {e}")
     
     elif command.startswith("/remove"):
         try:
@@ -2227,19 +2252,19 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         pass
                     del user_jobs[target_id]
                 remove_user(target_id)
-                await update.message.reply_text(f"✅ User {target_id} removed successfully.")
+                await update.message.reply_text(f"pe('✅') User {target_id} removed successfully.")
             else:
                 await update.message.reply_text("Usage: /remove <user_id>")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            await update.message.reply_text(f"pe('❌') Error: {e}")
     
     elif command == "/pending":
         pending = get_pending_users()
         if not pending:
-            await update.message.reply_text("✅ No pending users.")
+            await update.message.reply_text("pe('✅') No pending users.")
             return
         
-        message = "⏳ Pending Users:\n\n"
+        message = "pe('⏳') Pending Users:\n\n"
         for uid, uname in pending:
             message += f"ID: {uid} - @{uname or 'N/A'}\n"
         
@@ -2261,7 +2286,7 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not broadcast_text:
             await update.message.reply_text(
-                "📣 Broadcast usage:\n"
+                "pe('📣') Broadcast usage:\n"
                 "- Reply any message then type: /broadcast\n"
                 "- Or: /broadcast <your message>"
             )
@@ -2269,10 +2294,10 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         approved_user_ids = get_approved_user_ids()
         if not approved_user_ids:
-            await update.message.reply_text("ℹ️ No approved users found to broadcast to.")
+            await update.message.reply_text("pe('ℹ️') No approved users found to broadcast to.")
             return
 
-        await update.message.reply_text(f"📣 Broadcasting to {len(approved_user_ids)} approved user(s)...")
+        await update.message.reply_text(f"pe('📣') Broadcasting to {len(approved_user_ids)} approved user(s)...")
 
         sent = 0
         failed = 0
@@ -2289,7 +2314,7 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Small delay to reduce flood-limit risk
             await asyncio.sleep(0.05)
 
-        summary = f"✅ Broadcast done.\n\nSent: {sent}\nFailed: {failed}"
+        summary = f"pe('✅') Broadcast done.\n\nSent: {sent}\nFailed: {failed}"
         if failed_ids:
             preview = ", ".join(map(str, failed_ids[:30]))
             more = "" if len(failed_ids) <= 30 else f" ... (+{len(failed_ids) - 30} more)"
@@ -2313,17 +2338,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Admin actions
     if data.startswith("admin_"):
         if user_id != ADMIN_USER_ID:
-            await query.edit_message_text("❌ Access denied.")
+            await query.edit_message_text("pe('❌') Access denied.")
             return
         
         if data.startswith("admin_approve_"):
             target_user_id = int(data.split("_")[2])
             approve_user(target_user_id)
-            await query.edit_message_text(f"✅ User {target_user_id} approved.")
+            await query.edit_message_text(f"pe('✅') User {target_user_id} approved.")
             try:
                 await context.bot.send_message(
                     chat_id=target_user_id,
-                    text="✅ Your request has been approved! Use /start to begin."
+                    text="pe('✅') Your request has been approved! Use /start to begin."
                 )
             except:
                 pass
@@ -2331,11 +2356,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("admin_reject_"):
             target_user_id = int(data.split("_")[2])
             reject_user(target_user_id)
-            await query.edit_message_text(f"❌ User {target_user_id} rejected.")
+            await query.edit_message_text(f"pe('❌') User {target_user_id} rejected.")
             try:
                 await context.bot.send_message(
                     chat_id=target_user_id,
-                    text="❌ Your request has been rejected."
+                    text="pe('❌') Your request has been rejected."
                 )
             except:
                 pass
@@ -2344,7 +2369,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is approved
     status = get_user_status(user_id)
     if status != 'approved':
-        await query.edit_message_text("❌ Your access is pending approval.")
+        await query.edit_message_text("pe('❌') Your access is pending approval.")
         return
     
     # Handle number count setting (1-5)
@@ -2352,19 +2377,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             count = int(data.split("_")[2])
             if count < 1 or count > 5:
-                await query.edit_message_text("❌ Invalid count. Please select 1-5.")
+                await query.edit_message_text("pe('❌') Invalid count. Please select 1-5.")
                 return
             
             # Update user session with new count
             update_user_session(user_id, number_count=count)
             
             await query.edit_message_text(
-                f"✅ Number count set to {count}.\n\n"
+                f"pe('✅') Number count set to {count}.\n\n"
                 f"Now you will receive {count} number(s) when you request numbers."
             )
         except (ValueError, IndexError) as e:
             logger.error(f"Error setting number count: {e}")
-            await query.edit_message_text("❌ Error setting number count. Please try again.")
+            await query.edit_message_text("pe('❌') Error setting number count. Please try again.")
         return
     
     # Main menu Others pagination handlers
@@ -2406,11 +2431,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = f"service_{svc}"
                 # Fall through to service_ handler
             else:
-                await query.edit_message_text("❌ Service not found. Please reload.")
+                await query.edit_message_text("pe('❌') Service not found. Please reload.")
                 return
         except Exception as e:
             logger.error(f"Error selecting from others: {e}")
-            await query.edit_message_text("❌ Error selecting service.")
+            await query.edit_message_text("pe('❌') Error selecting service.")
             return
     # Service selection (from inline buttons)
     if data.startswith("service_"):
@@ -2419,19 +2444,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await query.edit_message_text("❌ API connection error. Please try again.")
+            await query.edit_message_text("pe('❌') API connection error. Please try again.")
             return
         
         # If Others clicked, first show dynamic service list (excluding WhatsApp/Facebook)
         if service_name == "others":
-            await query.edit_message_text("⏳ Discovering services (this may take a moment)...")
+            await query.edit_message_text("pe('⏳') Discovering services (this may take a moment)...")
             try:
                 # Use get_ranges("others") which searches many keywords
                 # No lock needed as APIClient handles internal state
                 ranges = await run_api_call(api_client.get_ranges, "others")
                 
                 if not ranges:
-                    await query.edit_message_text("❌ No services found.")
+                    await query.edit_message_text("pe('❌') No services found.")
                     return
 
                 # Aggregate by service
@@ -2488,7 +2513,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     nav_row = []
                     if page > 0:
                         nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="sel_others_prev"))
-                    nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop", api_kwargs={"style": "danger"}))
+                    nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop"))
                     if page < total_pages - 1:
                         nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="sel_others_next"))
                     keyboard.append(nav_row)
@@ -2498,25 +2523,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
                 await query.edit_message_text(
-                    f"📋 Found {len(sorted_services)} Services{page_info}:\nShowing {len(page_services)} services", 
+                    f"pe('📋') Found {len(sorted_services)} Services{page_info}:\nShowing {len(page_services)} services", 
                     reply_markup=reply_markup
                 )
             
             except Exception as e:
                 logger.error(f"Error discovering services: {e}")
-                await query.edit_message_text(f"❌ Error discovering services: {str(e)}")
+                await query.edit_message_text(f"pe('❌') Error discovering services: {str(e)}")
             return
         
         # For primary services (WhatsApp/Facebook)
         app_id = resolve_app_id(service_name, context)
         if not app_id:
-            await query.edit_message_text("❌ Invalid service.")
+            await query.edit_message_text("pe('❌') Invalid service.")
             return
         
         ranges = await run_api_call(api_client.get_ranges, app_id)
         
         if not ranges:
-            await query.edit_message_text(f"❌ No active ranges available for {service_name}.")
+            await query.edit_message_text(f"pe('❌') No active ranges available for {service_name}.")
             return
 
         # Group ranges by country - detect from range name if country not available
@@ -2596,7 +2621,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
-            f"📱 {service_name.upper()} - Select Country:",
+            f"pe('📱') {service_name.upper()} - Select Country:",
             reply_markup=reply_markup
         )
         return
@@ -2607,7 +2632,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             idx = int(data.split("_")[2])
             discovered = context.user_data.get('discovered_services', [])
             if idx < 0 or idx >= len(discovered):
-                await query.edit_message_text("❌ Invalid service.")
+                await query.edit_message_text("pe('❌') Invalid service.")
                 return
                 
             service_name = discovered[idx]
@@ -2621,14 +2646,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Get API client
             api_client = get_global_api_client()
             if not api_client:
-                await query.edit_message_text("❌ API connection error.")
+                await query.edit_message_text("pe('❌') API connection error.")
                 return
                 
             # Get ranges "others" (cached)
             ranges = await run_api_call(api_client.get_ranges, "others")
             
             if not ranges:
-                await query.edit_message_text("❌ No ranges found (session expired?).")
+                await query.edit_message_text("pe('❌') No ranges found (session expired?).")
                 return
                 
             # Filter by service (Relaxed matching)
@@ -2644,7 +2669,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  logger.info(f"Filtering mismatch: Target='{service_name}'. Samples: {[r.get('service') for r in ranges[:5]]}")
             
             if not service_ranges:
-                 await query.edit_message_text(f"❌ No ranges found for {service_name}.")
+                 await query.edit_message_text(f"pe('❌') No ranges found for {service_name}.")
                  return
                  
             # Group by Country
@@ -2716,11 +2741,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Back goes to Main Others List (handled by service_others in main handler)
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(f"📱 {service_name} - Select Country:", reply_markup=reply_markup)
+            await query.edit_message_text(f"pe('📱') {service_name} - Select Country:", reply_markup=reply_markup)
             
         except Exception as e:
             logger.error(f"Error in service_others: {e}")
-            await query.edit_message_text("❌ Error loading countries.")
+            await query.edit_message_text("pe('❌') Error loading countries.")
         return
     
     # Note: num_copy_ handler removed - using copy_text parameter in InlineKeyboardButton
@@ -2734,13 +2759,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         app_id = resolve_app_id(service_name, context)
         if not app_id:
-            await query.edit_message_text("❌ Invalid service.")
+            await query.edit_message_text("pe('❌') Invalid service.")
             return
         
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await query.edit_message_text("❌ API connection error. Please try again.")
+            await query.edit_message_text("pe('❌') API connection error. Please try again.")
             return
         
         ranges = await run_api_call(api_client.get_ranges, app_id)
@@ -2791,7 +2816,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             selected_range = None
         
         if not selected_range:
-            await query.edit_message_text(f"❌ No ranges found for {country}.")
+            await query.edit_message_text(f"pe('❌') No ranges found for {country}.")
             return
         
         range_id = selected_range.get('numerical_id', selected_range.get('range_id', selected_range.get('id', '')))
@@ -2805,7 +2830,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         sent_loading_msg = await context.bot.send_message(
             chat_id=user_id,
-            text="⏳ Requesting numbers..."
+            text="pe('⏳') Requesting numbers..."
         )
         loading_message_id = sent_loading_msg.message_id
         try:
@@ -2828,7 +2853,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text="❌ Failed to get numbers. Please try again."
+                        text="pe('❌') Failed to get numbers. Please try again."
                     )
                     return
                 
@@ -2843,7 +2868,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text="❌ No valid numbers received. Please try again."
+                        text="pe('❌') No valid numbers received. Please try again."
                     )
                     return
                 
@@ -2888,26 +2913,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for display_num in formatted_numbers:
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
-                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}, "style": "success"})])
+                    keyboard.append([InlineKeyboardButton(f"pe('📱') {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
                 # Get country flag
                 country_flag = get_country_flag(country_name)
                 
                 # Get service icon
                 service_icons = {
-                    "whatsapp": "💬",
+                    "whatsapp": "pe('💬')",
                     "facebook": "👥",
-                    "telegram": "✈️"
+                    "telegram": "pe('✈️')"
                 }
-                service_icon = service_icons.get(service_name, "📱")
+                service_icon = service_icons.get(service_name, "pe('📱')")
                 
-                keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country}", api_kwargs={"style": "success"})])
+                keyboard.append([InlineKeyboardButton("pe('🔄') Next Number", callback_data=f"country_{service_name}_{country}", api_kwargs={"style": "success"})])
                 keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Format message like the reference image
                 message = f"Country: {country_flag} {country_name}\n"
                 message += f"Service: {service_icon} {service_name.capitalize()}\n"
-                message += f"Waiting for OTP...... ⏳"
+                message += f"Waiting for OTP...... pe('⏳')"
                 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
@@ -2924,7 +2949,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text=f"❌ Error: {str(e)}"
+                        text=f"pe('❌') Error: {str(e)}"
                     )
                 except:
                     pass
@@ -2940,7 +2965,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             idx = int(data.split("_")[2])
             discovered = context.user_data.get('rangechkr_discovered_services', [])
             if idx < 0 or idx >= len(discovered):
-                await query.edit_message_text("❌ Invalid service.")
+                await query.edit_message_text("pe('❌') Invalid service.")
                 return
             
             service_name = discovered[idx]
@@ -2954,14 +2979,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Get global API client
             api_client = get_global_api_client()
             if not api_client:
-                await query.edit_message_text("❌ API connection error. Please try again.")
+                await query.edit_message_text("pe('❌') API connection error. Please try again.")
                 return
             
             # Get ranges "others" (cached fast)
             ranges = await run_api_call(api_client.get_ranges, "others")
             
             if not ranges:
-                await query.edit_message_text(f"❌ No ranges found for {service_name}.")
+                await query.edit_message_text(f"pe('❌') No ranges found for {service_name}.")
                 return
             
             # Filter by service
@@ -2972,7 +2997,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     service_ranges.append(r)
             
             if not service_ranges:
-                await query.edit_message_text(f"❌ No ranges found for {service_name}.")
+                await query.edit_message_text(f"pe('❌') No ranges found for {service_name}.")
                 return
                 
             # Group ranges by country - detect from range name if country not available
@@ -3006,15 +3031,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 flag1 = get_country_flag(country_list[i])
                 row.append(InlineKeyboardButton(
                     f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}",
-                    api_kwargs={"style": "primary"}
+                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}"
                 ))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
                     row.append(InlineKeyboardButton(
                         f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}",
-                        api_kwargs={"style": "primary"}
+                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}"
                     ))
                 keyboard.append(row)
             
@@ -3022,12 +3045,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
-                f"📋 {service_name} - Select Country:",
+                f"pe('📋') {service_name} - Select Country:",
                 reply_markup=reply_markup
             )
         except Exception as e:
             logger.error(f"Error fetching ranges for {service_name}: {e}")
-            await query.edit_message_text(f"❌ Failed to load ranges.")
+            await query.edit_message_text(f"pe('❌') Failed to load ranges.")
             return
     
     # Others service pagination handlers
@@ -3071,18 +3094,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await button_callback(update, context)
                     return
                 else:
-                    await query.edit_message_text("❌ Service not found in session. Please reload.")
+                    await query.edit_message_text("pe('❌') Service not found in session. Please reload.")
                     return
         except Exception as e:
             logger.error(f"Error handling others service selection: {e}")
-            await query.edit_message_text("❌ Error selecting service.")
+            await query.edit_message_text("pe('❌') Error selecting service.")
             return
     
     # Range checker country selection
     elif data.startswith("rangechkr_country_"):
         parts = data.split("_", 3)
         if len(parts) < 4:
-            await query.edit_message_text("❌ Invalid selection.")
+            await query.edit_message_text("pe('❌') Invalid selection.")
             return
             
         service_name = parts[2]
@@ -3091,10 +3114,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await query.edit_message_text("❌ API connection error.")
+            await query.edit_message_text("pe('❌') API connection error.")
             return
             
-        await query.edit_message_text(f"⏳ Loading ranges for {country}...")
+        await query.edit_message_text(f"pe('⏳') Loading ranges for {country}...")
         
         try:
             # Determine App ID
@@ -3125,7 +3148,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         filtered_ranges.append(r)
             
             if not filtered_ranges:
-                await query.edit_message_text(f"❌ No ranges found for {country}.")
+                await query.edit_message_text(f"pe('❌') No ranges found for {country}.")
                 return
             
             # Create keyboard with filtered ranges
@@ -3183,13 +3206,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             display_service = service_name.upper() if service_name in ['whatsapp', 'facebook'] else service_name
             await query.edit_message_text(
-                f"📋 {display_service} - {country} ({len(filtered_ranges)} ranges):\nSelect a range:",
+                f"pe('📋') {display_service} - {country} ({len(filtered_ranges)} ranges):\nSelect a range:",
                 reply_markup=reply_markup
             )
 
         except Exception as e:
             logger.error(f"Error in rangechkr_country: {e}")
-            await query.edit_message_text(f"❌ Error: {str(e)}")
+            await query.edit_message_text(f"pe('❌') Error: {str(e)}")
 
     # Range checker service selection
     elif data.startswith("rangechkr_service_"):
@@ -3198,22 +3221,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await query.edit_message_text("❌ API connection error. Please try again.")
+            await query.edit_message_text("pe('❌') API connection error. Please try again.")
             return
         
-        await query.edit_message_text("⏳ Loading ranges...")
+        await query.edit_message_text("pe('⏳') Loading ranges...")
         
         try:
             # Handle "others" - first show dynamic service list
             # Handle "others" - first show dynamic service list (New Flow)
             if service_name == "others":
-                await query.edit_message_text("⏳ Discovering services (this may take a moment)...")
+                await query.edit_message_text("pe('⏳') Discovering services (this may take a moment)...")
                 try:
                     # Get ranges "others"
                     ranges = await run_api_call(api_client.get_ranges, "others")
                     
                     if not ranges:
-                        await query.edit_message_text("❌ No services found.")
+                        await query.edit_message_text("pe('❌') No services found.")
                         return
 
                     # Aggregate by service
@@ -3267,7 +3290,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         nav_row = []
                         if page > 0:
                             nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_prev"))
-                        nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop", api_kwargs={"style": "danger"}))
+                        nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
                         if page < total_pages - 1:
                             nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_next"))
                         keyboard.append(nav_row)
@@ -3277,24 +3300,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
                     await query.edit_message_text(
-                        f"📋 Found {len(sorted_services)} Services{page_info}:\nShowing {len(page_services)} services", 
+                        f"pe('📋') Found {len(sorted_services)} Services{page_info}:\nShowing {len(page_services)} services", 
                         reply_markup=reply_markup
                     )
                 except Exception as e:
                     logger.error(f"Error discovering services: {e}")
-                    await query.edit_message_text(f"❌ Error discovering services.")
+                    await query.edit_message_text(f"pe('❌') Error discovering services.")
                 return
             else:
                 # Handle specific services (WhatsApp, Facebook)
                 app_id = resolve_app_id(service_name, context)
                 if not app_id:
-                    await query.edit_message_text("❌ Invalid service.")
+                    await query.edit_message_text("pe('❌') Invalid service.")
                     return
 
                 ranges = await run_api_call(api_client.get_ranges, app_id)
 
                 if not ranges or len(ranges) == 0:
-                    await query.edit_message_text(f"❌ No ranges found for {service_name.upper()}.")
+                    await query.edit_message_text(f"pe('❌') No ranges found for {service_name.upper()}.")
                     return
             
             # Group ranges by country - detect from range name if country not available
@@ -3333,15 +3356,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 flag1 = get_country_flag(country_list[i])
                 row.append(InlineKeyboardButton(
                     f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}",
-                    api_kwargs={"style": "primary"}
+                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}"
                 ))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
                     row.append(InlineKeyboardButton(
                         f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}",
-                        api_kwargs={"style": "primary"}
+                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}"
                     ))
                 keyboard.append(row)
             
@@ -3350,12 +3371,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             display_service_name = "Others" if service_name == "others" else service_name.upper()
             await query.edit_message_text(
-                f"📋 {display_service_name} - Select Country:",
+                f"pe('📋') {display_service_name} - Select Country:",
                 reply_markup=reply_markup
             )
         except Exception as e:
             logger.error(f"Error loading ranges: {e}")
-            await query.edit_message_text(f"❌ Error loading ranges: {str(e)}")
+            await query.edit_message_text(f"pe('❌') Error loading ranges: {str(e)}")
     
     # Range checker range selection (using hash)
     elif data.startswith("rng_"):
@@ -3365,12 +3386,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Range hash received: {range_hash}, user_data keys: {list(context.user_data.keys())}")
         if 'range_mapping' not in context.user_data:
             logger.error(f"range_mapping not found in user_data for user {user_id}")
-            await query.edit_message_text("❌ Range mapping not found. Please select range again from /rangechkr.")
+            await query.edit_message_text("pe('❌') Range mapping not found. Please select range again from /rangechkr.")
             return
         
         if range_hash not in context.user_data['range_mapping']:
             logger.error(f"Range hash {range_hash} not found in mapping. Available hashes: {list(context.user_data['range_mapping'].keys())}")
-            await query.edit_message_text("❌ Range not found. Please select range again from /rangechkr.")
+            await query.edit_message_text("pe('❌') Range not found. Please select range again from /rangechkr.")
             return
         
         range_info = context.user_data['range_mapping'][range_hash]
@@ -3389,7 +3410,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         sent_loading_msg = await context.bot.send_message(
             chat_id=user_id,
-            text="⏳ Requesting numbers from range..."
+            text="pe('⏳') Requesting numbers from range..."
         )
         loading_message_id = sent_loading_msg.message_id
         try:
@@ -3407,7 +3428,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text="❌ API connection error. Please try again."
+                        text="pe('❌') API connection error. Please try again."
                     )
                     return
                 
@@ -3425,7 +3446,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text="❌ Failed to get numbers from this range. Please try again."
+                        text="pe('❌') Failed to get numbers from this range. Please try again."
                     )
                     return
                 
@@ -3446,7 +3467,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text="❌ No valid numbers received. Please try again."
+                        text="pe('❌') No valid numbers received. Please try again."
                     )
                     return
                 
@@ -3457,7 +3478,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text=f"❌ Invalid service: {service_name}"
+                        text=f"pe('❌') Invalid service: {service_name}"
                     )
                     return
                 
@@ -3485,8 +3506,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     formatted_numbers.append(display_num)
                     # Use copy_text via api_kwargs - no callback_data needed for copy
                     keyboard.append([InlineKeyboardButton(
-                        f"📱 {display_num}",
-                        api_kwargs={"copy_text": {"text": display_num}, "style": "success"}
+                        f"pe('📱') {display_num}",
+                        api_kwargs={"copy_text": {"text": display_num}}
                     )])
                 
                 # Use hash for change numbers button too
@@ -3498,7 +3519,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'range_id': range_id,
                     'range_name': range_name
                 }
-                keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
+                keyboard.append([InlineKeyboardButton("pe('🔄') Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Get country flag
@@ -3506,17 +3527,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Get service icon
                 service_icons = {
-                    "whatsapp": "💬",
+                    "whatsapp": "pe('💬')",
                     "facebook": "👥",
-                    "telegram": "✈️"
+                    "telegram": "pe('✈️')"
                 }
-                service_icon = service_icons.get(service_name, "📱")
+                service_icon = service_icons.get(service_name, "pe('📱')")
                 
                 message_text = f"{service_icon} {service_name.upper()}\n"
                 if country_name:
                     message_text += f"{country_flag} {country_name}\n"
-                message_text += f"📋 Range: {range_name}\n\n"
-                message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
+                message_text += f"pe('📋') Range: {range_name}\n\n"
+                message_text += f"pe('✅') {len(numbers_list)} numbers received:\n\n"
                 message_text += "Tap a number to copy it."
                 
                 await context.bot.edit_message_text(
@@ -3554,7 +3575,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.edit_message_text(
                         chat_id=user_id,
                         message_id=loading_message_id,
-                        text=f"❌ Error: {str(e)}\n\nRange ID: {range_id}\nService: {service_name}"
+                        text=f"pe('❌') Error: {str(e)}\n\nRange ID: {range_id}\nService: {service_name}"
                     )
                 except:
                     pass
@@ -3566,10 +3587,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Range checker back to services
     elif data == "rangechkr_back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
+            [InlineKeyboardButton("pe('💬') WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
             [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
+            [InlineKeyboardButton("pe('✈️') Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("pe('✨') Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3580,14 +3601,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Back to services
     elif data == "back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
+            [InlineKeyboardButton("pe('💬') WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
             [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
+            [InlineKeyboardButton("pe('✈️') Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("pe('✨') Others", callback_data="service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "🎯 Select a service:",
+            "pe('🎯') Select a service:",
             reply_markup=reply_markup
         )
 
@@ -3599,36 +3620,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is approved
     status = get_user_status(user_id)
     if status != 'approved':
-        await update.message.reply_text("❌ Your access is pending approval.")
+        await update.message.reply_text("pe('❌') Your access is pending approval.")
         return
     
     # Handle "Get Number" button
-    if text in ("Get Number", "📲 Get Number", "🚀 Get Number"):
+    if text in ("Get Number", "📲 Get Number", "pe('🚀') Get Number"):
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
+            [InlineKeyboardButton("pe('💬') WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
             [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
+            [InlineKeyboardButton("pe('✈️') Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("pe('✨') Others", callback_data="service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "🎯 Select a service:",
+            "pe('🎯') Select a service:",
             reply_markup=reply_markup
         )
         return
     
     # Handle "Set Number Count" button
-    if text in ("Set Number Count", "🧮 Set Number Count", "⚙️ Number Count", "🎛 Number Count", "Number Count"):
+    if text in ("Set Number Count", "🧮 Set Number Count", "pe('⚙️') Number Count", "pe('🎛') Number Count", "Number Count"):
         # Get current count
         session = get_user_session(user_id)
         current_count = session.get('number_count', 2) if session else 2
         
         keyboard = [
-            [InlineKeyboardButton("1️⃣", callback_data="set_count_1", api_kwargs={"style": "primary"}),
-             InlineKeyboardButton("2️⃣", callback_data="set_count_2", api_kwargs={"style": "primary"}),
-             InlineKeyboardButton("3️⃣", callback_data="set_count_3", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("4️⃣", callback_data="set_count_4", api_kwargs={"style": "primary"}),
-             InlineKeyboardButton("5️⃣", callback_data="set_count_5", api_kwargs={"style": "primary"})]
+            [InlineKeyboardButton("1", callback_data="set_count_1"),
+             InlineKeyboardButton("2", callback_data="set_count_2"),
+             InlineKeyboardButton("3", callback_data="set_count_3")],
+            [InlineKeyboardButton("4", callback_data="set_count_4"),
+             InlineKeyboardButton("5", callback_data="set_count_5")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -3639,22 +3660,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "My Stats" button
-    if text in ("My Stats", "📊 My Stats", "📈 My Stats"):
+    if text in ("My Stats", "pe('📊') My Stats", "pe('📈') My Stats"):
         today_count = get_today_otp_count(user_id)
         bd_now = get_bd_now()
         await update.message.reply_text(
             "My Stats\n\n"
             f"🕒 BD time now: {bd_now.strftime('%Y-%m-%d %I:%M:%S %p')}\n"
-            f"✅ Today you received: {today_count} OTP(s)."
+            f"pe('✅') Today you received: {today_count} OTP(s)."
         )
         return
     
     # Handle service selection (old format - for backward compatibility)
-    if text in ["💬 WhatsApp", "👥 Facebook", "✈️ Telegram", "🟢 WhatsApp", "🔵 Facebook", "🛩 Telegram", "WhatsApp", "Facebook", "Telegram"]:
+    if text in ["pe('💬') WhatsApp", "👥 Facebook", "pe('✈️') Telegram", "🟢 WhatsApp", "🔵 Facebook", "🛩 Telegram", "WhatsApp", "Facebook", "Telegram"]:
         service_map = {
-            "💬 WhatsApp": "whatsapp",
+            "pe('💬') WhatsApp": "whatsapp",
             "👥 Facebook": "facebook",
-            "✈️ Telegram": "telegram",
+            "pe('✈️') Telegram": "telegram",
             "🟢 WhatsApp": "whatsapp",
             "🔵 Facebook": "facebook",
             "🛩 Telegram": "telegram",
@@ -3673,14 +3694,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await update.message.reply_text("❌ API connection error. Please try again.")
+            await update.message.reply_text("pe('❌') API connection error. Please try again.")
             return
         
         try:
             ranges = await run_api_call(api_client.get_ranges, app_id)
             
             if not ranges:
-                await update.message.reply_text(f"❌ No active ranges available for {service_name}.")
+                await update.message.reply_text(f"pe('❌') No active ranges available for {service_name}.")
                 return
             
             # Group ranges by country - detect from range name
@@ -3727,22 +3748,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(country_list), 2):
                 row = []
                 flag1 = get_country_flag(country_list[i])
-                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}", api_kwargs={"style": "primary"}))
+                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}"))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
-                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}", api_kwargs={"style": "primary"}))
+                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}"))
                 keyboard.append(row)
             
             keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
-                f"📱 {service_name.upper()} - Select Country:",
+                f"pe('📱') {service_name.upper()} - Select Country:",
                 reply_markup=reply_markup
             )
         except Exception as e:
             logger.error(f"Error in handle_message service selection: {e}")
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            await update.message.reply_text(f"pe('❌') Error: {str(e)}")
     
     # Handle direct range input (e.g., "24491501XXX" or "24491501")
     elif re.match(r'^[\dXx]+$', text) and len(text) >= 6:
@@ -3752,13 +3773,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await update.message.reply_text("❌ API connection error. Please try again.")
+            await update.message.reply_text("pe('❌') API connection error. Please try again.")
             return
 
         found_service = "whatsapp"
         range_name = range_pattern
         range_id = range_pattern
-        await update.message.reply_text("⏳ Buying directly via WhatsApp...")
+        await update.message.reply_text("pe('⏳') Buying directly via WhatsApp...")
         
         try:
             # Get user's number count preference
@@ -3775,7 +3796,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
-                await update.message.reply_text("❌ Failed to get numbers from this range. Please try again.")
+                await update.message.reply_text("pe('❌') Failed to get numbers from this range. Please try again.")
                 return
             
             # Extract numbers
@@ -3786,7 +3807,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     numbers_list.append(number)
             
             if not numbers_list:
-                await update.message.reply_text("❌ No valid numbers received. Please try again.")
+                await update.message.reply_text("pe('❌') No valid numbers received. Please try again.")
                 return
             
             # Detect country from first number
@@ -3813,8 +3834,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + display_num
                 # Use copy_text via api_kwargs - no callback_data needed for copy
                 keyboard.append([InlineKeyboardButton(
-                    f"📱 {display_num}",
-                    api_kwargs={"copy_text": {"text": display_num}, "style": "success"}
+                    f"pe('📱') {display_num}",
+                    api_kwargs={"copy_text": {"text": display_num}}
                 )])
             
             # Use hash for change numbers button
@@ -3828,7 +3849,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'range_id': range_id,
                 'range_name': range_name
             }
-            keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
+            keyboard.append([InlineKeyboardButton("pe('🔄') Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Get country flag
@@ -3836,17 +3857,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Get service icon
             service_icons = {
-                "whatsapp": "💬",
+                "whatsapp": "pe('💬')",
                 "facebook": "👥",
-                "telegram": "✈️"
+                "telegram": "pe('✈️')"
             }
-            service_icon = service_icons.get(found_service, "📱")
+            service_icon = service_icons.get(found_service, "pe('📱')")
             
             message_text = f"{service_icon} {found_service.upper()}\n"
             if country_name:
                 message_text += f"{country_flag} {country_name}\n"
-            message_text += f"📋 Range: {range_id}\n\n"
-            message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
+            message_text += f"pe('📋') Range: {range_id}\n\n"
+            message_text += f"pe('✅') {len(numbers_list)} numbers received:\n\n"
             message_text += "Tap a number to copy it."
             
             sent_msg = await update.message.reply_text(
@@ -3893,19 +3914,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Check if it's the time variable error
             if "cannot access local variable 'time'" in error_msg:
                 error_msg = "Internal error occurred. Please try again."
-            await update.message.reply_text(f"❌ Error: {error_msg}")
+            await update.message.reply_text(f"pe('❌') Error: {error_msg}")
     
     # Handle country selection (old format - for backward compatibility)
-    elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text or "Back" in text:
+    elif any(text.startswith(f) for f in ["pe('🇦🇴')", "pe('🇰🇲')", "pe('🇷🇴')", "pe('🇩🇰')", "pe('🇧🇩')", "pe('🇮🇳')", "pe('🇺🇸')", "pe('🇬🇧')", "🌍"]) or "🔙" in text or "Back" in text:
         if "Back" in text:
             keyboard = [
-                [KeyboardButton("🚀 Get Number", api_kwargs={"style": "success"})],
-                [KeyboardButton("🎛 Number Count", api_kwargs={"style": "primary"})],
-                [KeyboardButton("📈 My Stats", api_kwargs={"style": "primary"})]
+                [KeyboardButton("pe('🚀') Get Number", api_kwargs={"style": "success"})],
+                [KeyboardButton("pe('🎛') Number Count", api_kwargs={"style": "primary"})],
+                [KeyboardButton("pe('📈') My Stats", api_kwargs={"style": "primary"})]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             await update.message.reply_text(
-                "✨ Ready when you are. Tap 🚀 Get Number to start.",
+                "pe('✨') Ready when you are. Tap pe('🚀') Get Number to start.",
                 reply_markup=reply_markup
             )
             return
@@ -3926,7 +3947,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get global API client
         api_client = get_global_api_client()
         if not api_client:
-            await update.message.reply_text("❌ API connection error. Please try again.")
+            await update.message.reply_text("pe('❌') API connection error. Please try again.")
             return
         
         try:
@@ -3969,7 +3990,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 selected_range = None
             
             if not selected_range:
-                await update.message.reply_text(f"❌ No ranges found for {country}.")
+                await update.message.reply_text(f"pe('❌') No ranges found for {country}.")
                 return
             
             range_id = selected_range.get('name', selected_range.get('id', ''))
@@ -3980,13 +4001,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             number_count = session.get('number_count', 2) if session else 2
             
             # Request numbers
-            await update.message.reply_text(f"⏳ Requesting {number_count} number(s)...")
+            await update.message.reply_text(f"pe('⏳') Requesting {number_count} number(s)...")
             
             # Try range_name first, then range_id (like otp_tool.py)
             numbers_data = await run_api_call(api_client.get_multiple_numbers, range_id, range_name, number_count)
             
             if not numbers_data or len(numbers_data) == 0:
-                await update.message.reply_text("❌ Failed to get numbers. Please try again.")
+                await update.message.reply_text("pe('❌') Failed to get numbers. Please try again.")
                 return
             
             # Extract numbers and store them
@@ -3997,7 +4018,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     numbers_list.append(number)
             
             if not numbers_list:
-                await update.message.reply_text("❌ No valid numbers received. Please try again.")
+                await update.message.reply_text("pe('❌') No valid numbers received. Please try again.")
                 return
             
             country_name = numbers_data[0].get('cantryName', numbers_data[0].get('country', country))
@@ -4019,27 +4040,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     display_num = '+' + (digits_only if digits_only else display_num)
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
-                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}, "style": "success"})])
+                keyboard.append([InlineKeyboardButton(f"pe('📱') {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
             
             # Get country flag
             country_flag = get_country_flag(country_name)
             
             # Get service icon
             service_icons = {
-                "whatsapp": "💬",
+                "whatsapp": "pe('💬')",
                 "facebook": "👥",
-                "telegram": "✈️"
+                "telegram": "pe('✈️')"
             }
-            service_icon = service_icons.get(service_name, "📱")
+            service_icon = service_icons.get(service_name, "pe('📱')")
             
-            keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}", api_kwargs={"style": "success"})])
+            keyboard.append([InlineKeyboardButton("pe('🔄') Next Number", callback_data=f"country_{service_name}_{country_name}")])
             keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format message like the reference image
             message = f"Country: {country_flag} {country_name}\n"
             message += f"Service: {service_icon} {service_name.capitalize()}\n"
-            message += f"Waiting for OTP...... ⏳"
+            message += f"Waiting for OTP...... pe('⏳')"
             
             sent_msg = await update.message.reply_text(
                 message,
@@ -4058,7 +4079,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_jobs[user_id] = job
         except Exception as e:
             logger.error(f"Error in handle_message country selection: {e}")
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            await update.message.reply_text(f"pe('❌') Error: {str(e)}")
 
 async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
     """Monitor OTP in background for multiple numbers - continues until all numbers receive OTP"""
@@ -4071,7 +4092,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
     
     # Validate user_id
     if not user_id:
-        logger.error(f"❌ monitor_otp: user_id is None! job_data: {job_data}, job.chat_id: {job.chat_id}")
+        logger.error(f"pe('❌') monitor_otp: user_id is None! job_data: {job_data}, job.chat_id: {job.chat_id}")
         return  # Can't proceed without user_id
     
     # Track which numbers have already received OTP
@@ -4101,22 +4122,21 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             range_id = str(job_data.get('range_id') or '').strip()
 
             service_icons = {
-                "whatsapp": "💬",
+                "whatsapp": "pe('💬')",
                 "facebook": "👥",
-                "telegram": "✈️"
+                "telegram": "pe('✈️')"
             }
-            service_icon = service_icons.get(service_name, "📱")
+            service_icon = service_icons.get(service_name, "pe('📱')")
             country_flag = get_country_flag(country_name) if country_name and country_name != 'Unknown' else "🌍"
 
             keyboard = []
             status_lines = []
             for num in numbers:
                 status_label = "OTP" if num in received_otps else "Expired"
-                button_label = f"📱 {num} ({status_label})"
-                btn_style = "success" if num in received_otps else "danger"
+                button_label = f"pe('📱') {num} ({status_label})"
                 keyboard.append([InlineKeyboardButton(
                     button_label,
-                    api_kwargs={"copy_text": {"text": num}, "style": btn_style}
+                    api_kwargs={"copy_text": {"text": num}}
                 )])
                 status_lines.append(f"{num} - {status_label}")
 
@@ -4124,7 +4144,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             if country_name and country_name != 'Unknown':
                 timeout_text += f"{country_flag} {country_name}\n"
             if range_id:
-                timeout_text += f"📋 Range: {range_id}\n"
+                timeout_text += f"pe('📋') Range: {range_id}\n"
             timeout_text += "\n⏱️ Timeout! No OTP received within 15 minutes.\n\n"
             timeout_text += "Number status:\n" + "\n".join(status_lines)
 
@@ -4236,7 +4256,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                 
                 # Additional debug logging
                 if otp:
-                    logger.info(f"✅ OTP detected for {number}: {otp}")
+                    logger.info(f"pe('✅') OTP detected for {number}: {otp}")
                 elif sms_content:
                     logger.debug(f"⚠️ SMS content found but no OTP extracted: {sms_content[:100]}")
                 elif status:
@@ -4287,14 +4307,14 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     language = detect_language_from_sms(sms_content) if sms_content else 'English'
                     motivation_line = html.escape(get_random_bn_otp_motivation())
 
-                    # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
+                    # Format OTP message for USER: "pe('🇩🇰') #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
                     user_otp_msg = (
                         f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
                         f"<b>আজকের প্রেরণা:</b> {motivation_line}"
                     )
 
-                    # Format OTP message for CHANNEL: "🇩🇰 #DK WhatsApp 4540XXXX81 English"
+                    # Format OTP message for CHANNEL: "pe('🇩🇰') #DK WhatsApp 4540XXXX81 English"
                     # Mask number for channel (middle digits with XXXX)
                     masked_number = mask_number(display_number)
                     if not masked_number.startswith('+'):
@@ -4315,14 +4335,13 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]]
-
+                    user_keyboard = [[InlineKeyboardButton(f"pe('🔐') {otp}", api_kwargs={"copy_text": {"text": otp}})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton("🔐 Copy OTP", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
+                    channel_row = [InlineKeyboardButton(f"pe('🔐') {otp}", api_kwargs={"copy_text": {"text": otp}})]
                     if range_url:
-                        channel_row.append(InlineKeyboardButton("🚀 Range", url=range_url, api_kwargs={"style": "primary"}))
+                        channel_row.append(InlineKeyboardButton("Range", url=range_url))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
                     
                     # Send OTP message to user FIRST (important!)
@@ -4336,7 +4355,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                             parse_mode='HTML'
                         )
                         user_message_sent = True
-                        logger.info(f"✅ OTP message sent successfully to user {user_id} (message_id: {sent_msg.message_id}) for {number}: {otp}")
+                        logger.info(f"pe('✅') OTP message sent successfully to user {user_id} (message_id: {sent_msg.message_id}) for {number}: {otp}")
                     except Exception as e:
                         logger.error(f"❌ Error sending OTP message to user {user_id}: {type(e).__name__}: {e}")
                         logger.error(f"   OTP was: {otp}, Number: {number}, Message: {user_otp_msg}")
@@ -4350,7 +4369,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                             reply_markup=channel_reply_markup,
                             parse_mode='HTML'
                         )
-                        logger.info(f"✅ OTP forwarded to channel {OTP_CHANNEL_ID} for {number}: {otp}")
+                        logger.info(f"pe('✅') OTP forwarded to channel {OTP_CHANNEL_ID} for {number}: {otp}")
                     except Exception as e:
                         logger.error(f"❌ Error sending OTP message to channel {OTP_CHANNEL_ID}: {type(e).__name__}: {e}")
                     
@@ -4365,7 +4384,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     all_received = all(num in received_otps for num in numbers)
                     if all_received:
                         # All numbers received OTP, stop monitoring
-                        logger.info(f"✅ All numbers received OTP for user {user_id}, stopping monitoring")
+                        logger.info(f"pe('✅') All numbers received OTP for user {user_id}, stopping monitoring")
                         try:
                             job.schedule_removal()
                         except:
@@ -4475,9 +4494,9 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}, "style": "success"})]
+            channel_row = [InlineKeyboardButton(f"pe('🔐') {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}})]
             if range_url:
-                channel_row.append(InlineKeyboardButton("🚀 Range", url=range_url, api_kwargs={"style": "primary"}))
+                channel_row.append(InlineKeyboardButton("Range", url=range_url))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
 
             try:
@@ -4525,7 +4544,7 @@ def main():
     logger.info("Initializing global API client...")
     api_client = get_global_api_client()
     if api_client:
-        logger.info("✅ API client initialized (login will retry on first API call if needed)")
+        logger.info("pe('✅') API client initialized (login will retry on first API call if needed)")
     
     # Create application
     # Enable concurrent update handling so one user's long request doesn't block others.
@@ -4556,7 +4575,7 @@ def main():
             # Wait a bit and let the other instance handle it, or this instance will take over
             await asyncio.sleep(5)
         else:
-            logger.error(f"❌ Error: {error}", exc_info=error)
+            logger.error(f"pe('❌') Error: {error}", exc_info=error)
     
     application.add_error_handler(error_handler)
 
@@ -4586,12 +4605,12 @@ def main():
             close_loop=False
         )
     except Conflict as e:
-        logger.error(f"❌ Conflict error on startup: {e}. Another bot instance may be running.")
-        logger.info("💡 If you're sure only one instance should run, wait a few seconds and the bot will retry.")
+        logger.error(f"pe('❌') Conflict error on startup: {e}. Another bot instance may be running.")
+        logger.info("pe('💡') If you're sure only one instance should run, wait a few seconds and the bot will retry.")
         # Wait and retry once
         import time
         time.sleep(10)
-        logger.info("🔄 Retrying bot startup...")
+        logger.info("pe('🔄') Retrying bot startup...")
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
