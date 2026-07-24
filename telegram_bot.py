@@ -27,7 +27,7 @@ from flask import Flask
 # Premium emoji needs parse_mode="HTML" in message text, or icon_custom_emoji_id in
 # api_kwargs for buttons (python-telegram-bot 21.x routes api_kwargs straight to the API).
 _PREMIUM_EMOJI_DB = {
-    # Service / brand icons
+    # Service / brand icons (unchanged)
     '\U0001f4de': '5233354831984353090',     # 📞 WhatsApp / phone handset
     '\U0001f465': '5389064576333527180',     # 👥 Facebook
     '\u2708\ufe0f': '5364125616801073577',  # ✈️ Telegram
@@ -37,27 +37,59 @@ _PREMIUM_EMOJI_DB = {
     '\U0001f981': '5364325478809226894',     # 🦁 Grok
     '\U0001f3ae': '5233333563306301418',     # 🎮 1xBet
     '\U0001f426': '5233634911096693865',     # 🐦 Twitter / bird
-    # Status / action icons
+    # Custom Emoji Pack: Finance Emoji (all 41 emojis)
+    '\u2b50': '5267500801240092311',          # ⭐ Star
+    '\U0001f4b5': '5197434882321567830',     # 💵 Dollar banknote
+    '\U0001f4b6': '5197369495739455200',     # 💶 Euro banknote
+    '\U0001fa99': '5377505475015235101',     # 🪙 Coin
+    '\U0001f4b7': '5377775044342599336',     # 💷 Pound banknote
+    '\U0001f4b4': '5197161121106123533',     # 💴 Yen banknote
+    '\u26cf\ufe0f': '5197371802136892976',   # ⛏ Pick
+    '\U0001f4b3': '5445353829304387411',     # 💳 Credit card
+    '\U0001f4e5': '5443127283898405358',     # 📥 Inbox tray
+    '\U0001f4e4': '5445355530111437729',     # 📤 Outbox tray
+    '\u270d\ufe0f': '5197269100878907942',   # ✍ Writing
+    '\U0001f5fa\ufe0f': '5330320040883411678', # 🗺 World map
+    '\U0001f6eb': '5201691993775818138',     # 🛫 Airplane departure
+    '\U0001f4ac': '5303138782004924588',     # 💬 Speech balloon
+    '\U0001f3af': '5310278924616356636',     # 🎯 Bullseye
+    '\U0001f6cd\ufe0f': '5294167145079395967', # 🛍 Shopping bags
+    '\U0001f9fe': '5444856076954520455',     # 🧾 Receipt
+    '\U0001faa3': '5399909394525737759',     # 🪣 Bucket
+    '\U0001f30e': '5224450179368767019',     # 🌎 Globe Americas
+    '\U0001f43b': '5411089297476441876',     # 🐻 Bear
+    '\U0001f402': '5411233191765759009',     # 🐂 Ox
+    '\U0001f4c7': '5332724926216428039',     # 📇 Card index
+    '\U0001f9ee': '5303214794336125778',     # 🧮 Abacus
+    '\u23f1\ufe0f': '5382194935057372936',   # ⏱ Stopwatch
+    '\U0001f4c9': '5429518319243775957',     # 📉 Chart downwards
+    '\u2197\ufe0f': '5429651785352501917',   # ↗️ North east arrow
+    '\U0001f6d2': '5312361253610475399',     # 🛒 Shopping cart
+    '\u2696\ufe0f': '5400250414929041085',   # ⚖ Balance scale
+    '\U0001f400': '5400362079783770689',     # 🐳 Spouting whale
+    '\U0001f4bb': '5193177581888755275',     # 💻 Laptop
+    '\U0001f4ca': '5190806721286657692',     # 📊 Bar chart
+    '\U0001f340': '5305699699204837855',     # 🍀 Four leaf clover
+    '\U0001f437': '5312123810638483121',     # 🐷 Pig face
+    '\u2194\ufe0f': '5271837459783638319',   # ↔️ Left right arrow
+    # Status / action icons (updated with pack IDs where available)
     '\u2705': '5273806972871787310',          # ✅ Check / approve
     '\u274c': '5271934564699226262',          # ❌ Cross / reject
     '\U0001f504': '5332713338394655534',     # 🔄 Refresh / change
     '\U0001f517': '5319288443153445517',     # 🔗 Link
     '\U0001f4cc': '5319276623403458717',     # 📌 Pin
     '\U0001f4e1': '5368456936700263949',     # 📡 Satellite / location
-    '\U0001f310': '5332618260703624145',     # 🌐 Globe
+    '\U0001f310': '5224450179368767019',     # 🌐 Globe
     '\U0001f50d': '5233449944035123527',     # 🔍 Search
     '\U0001f50e': '5319084384962248505',     # 🔎 Magnifier
     '\U0001f4c2': '5321272434576355870',     # 📂 Folder
-    '\u2b50': '5233537411044107383',          # ⭐ Star
     '\U0001f4a0': '5312057964494874871',     # 💠 Diamond
     '\U0001f4f1': '5319228768877839193',     # 📱 Phone
-    '\U0001f4e8': '5233582387941630314',     # 📨 Inbox
+    '\U0001f4e8': '5443127283898405358',     # 📨 Inbox
     '\u26a1': '5233732076141828188',          # ⚡ Lightning
-    # NOTE: 🔐 (U+1F510 lock) and ✨/🚀/🧭/🎯/📨/📡/⚠️/🌍-globe have NO premium id in
-    # the pack, so they stay as plain emoji characters in text/buttons.
     # Navigation arrows
-    '\u2b05\ufe0f': '5386340832628462681',  # ⬅️ left arrow
-    '\u27a1\ufe0f': '5332684922891025384',  # ➡️ right arrow
+    '\u2b05\ufe0f': '5271837459783638319',  # ⬅️ left arrow
+    '\u27a1\ufe0f': '5429651785352501917',  # ➡️ right arrow
     '\u25c0\ufe0f': '5332819376842226496',  # ◀️ reverse
     '\u25b6\ufe0f': '5332722143077613679',  # ▶️ play
     '\U0001f519': '5332369758190845562',     # 🔙 Back
@@ -69,9 +101,8 @@ _PREMIUM_EMOJI_DB = {
     '\U0001f535': '5332571076192910271',     # 🔵 blue
     '\U0001f7e3': '5332694612337244014',     # 🟣 purple
     # Misc UI
-    '\u2699\ufe0f': '5366231924597604153',   # ⚙️ settings/gear
+    '\u2699\ufe0f': '5400250414929041085',   # ⚙️ settings/gear
     '\U0001f530': '5348149223223211884',     # 🔰 new/badge
-    '\U0001f3af': '5319276623403458717',     # 🎯 target (reuse pin-like icon)
 }
 
 def get_premium_id(emoji_char):
@@ -128,10 +159,11 @@ def get_service_icon(service_name):
 
 
 def replace_mask_with_cross(masked_num):
-    """Replace XXX/XXXX mask in masked number with cross emoji."""
+    """Replace XXX/XXXX mask in masked number with premium cross emoji."""
     if not masked_num:
         return masked_num
-    return masked_num.replace('XXXX', '\u274c').replace('XXX', '\u274c')
+    cross = pe('\u274c')
+    return masked_num.replace('XXXX', cross).replace('XXX', cross)
 
 
 
@@ -2271,7 +2303,7 @@ def build_console_channel_message(log_item):
         "telegram": "Telegram"
     }.get(service_key, service_raw)
 
-    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_raw))} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
+    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_raw))} {html.escape(number_masked)} {html.escape(language)}"
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4494,7 +4526,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
                     user_otp_msg = (
-                        f"{flag_pe(country)} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
+                        f"{flag_pe(country)} #{country_code} {pe(service_icon)} <code>{display_number}</code> {language}\n\n"
                         f"<b>আজকের প্রেরণা:</b> {motivation_line}"
                     )
 
@@ -4504,7 +4536,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     if not masked_number.startswith('+'):
                          masked_number = '+' + masked_number
                     service_icon = get_service_icon(service)
-                    channel_otp_msg = f"{flag_pe(country)} #{country_code} {pe(service_icon)} {service.capitalize()} {replace_mask_with_cross(masked_number)} {language}"
+                    channel_otp_msg = f"{flag_pe(country)} #{country_code} {pe(service_icon)} {replace_mask_with_cross(masked_number)} {language}"
                     
                     # Build deep-link URL for the "Range" button (channel only)
                     range_for_button = None
