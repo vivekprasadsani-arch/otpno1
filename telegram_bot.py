@@ -23,42 +23,83 @@ from dotenv import load_dotenv
 from flask import Flask
 
 # === Premium Emoji Helper ===
+# NOTE: All IDs verified against "custom emoji id.txt" (pack #1). Each is 19 digits.
+# Premium emoji needs parse_mode="HTML" in message text, or icon_custom_emoji_id in
+# api_kwargs for buttons (python-telegram-bot 21.x routes api_kwargs straight to the API).
 _PREMIUM_EMOJI_DB = {
-    '\u2b50': '5321197740800120767',           # ⭐ Star
+    # Service / brand icons
+    '\U0001f4de': '5233354831984353090',     # 📞 WhatsApp / phone handset
     '\U0001f465': '5389064576333527180',     # 👥 Facebook
+    '\u2708\ufe0f': '5364125616801073577',  # ✈️ Telegram
     '\U0001f4f8': '5364310996179503764',     # 📸 Instagram
     '\U0001f3b5': '5391044040860906456',     # 🎵 TikTok
-    '\U0001f426': '52336349110874163865',    # 🐦 Twitter/Bird
-    '\u274c': '5233376087777501917',          # ❌ Cross
-    '\U0001f50d': '5233449944035123527',     # 🔍 Search
-    '\u2708\ufe0f': '5364125616801073577',  # ✈️ Telegram
-    '\U0001f4de': '5233354831984353090',     # 📞 WhatsApp
-    '\U0001f4f1': '5235445265581755428',     # 📱 Phone
-    '\U0001f4e8': '5233582387941630314',     # 📨 Inbox
-    '\u26a1': '5318987271456717350',          # ⚡ Lightning
-    '\U0001f4cc': '5319276623403458717',     # 📌 Pin
-    '\U0001f4e1': '5368456936700263949',     # 📡 Satellite
-    '\U0001f4c2': '5321272434576355870',     # 📂 Folder
-    '\U0001f50e': '5319084384962248505',     # 🔎 Magnifying
-    '\U0001f310': '5310259128417134249',    # 🌐 Globe
-    '\U0001f4a0': '5312057964494874871',     # 💠 Diamond
-    '\U0001f517': '5319288443153445517',     # 🔗 Link
-    '\U0001f3ae': '5233333563306301418',     # 🎮 1xBet
-    '\U0001f510': '5332757036665734028',     # 🔐 Lock
-    '\u2705': '5273806972871787310',          # ✅ Check
     '\U0001f916': '5310170944843579391',     # 🤖 ChatGPT
-    '\U0001f504': '5332713338394655534',     # 🔄 Refresh
     '\U0001f981': '5364325478809226894',     # 🦁 Grok
+    '\U0001f3ae': '5233333563306301418',     # 🎮 1xBet
+    '\U0001f426': '5233634911096693865',     # 🐦 Twitter / bird
+    # Status / action icons
+    '\u2705': '5273806972871787310',          # ✅ Check / approve
+    '\u274c': '5271934564699226262',          # ❌ Cross / reject
+    '\U0001f504': '5332713338394655534',     # 🔄 Refresh / change
+    '\U0001f517': '5319288443153445517',     # 🔗 Link
+    '\U0001f4cc': '5319276623403458717',     # 📌 Pin
+    '\U0001f4e1': '5368456936700263949',     # 📡 Satellite / location
+    '\U0001f310': '5332618260703624145',     # 🌐 Globe
+    '\U0001f50d': '5233449944035123527',     # 🔍 Search
+    '\U0001f50e': '5319084384962248505',     # 🔎 Magnifier
+    '\U0001f4c2': '5321272434576355870',     # 📂 Folder
+    '\u2b50': '5233537411044107383',          # ⭐ Star
+    '\U0001f4a0': '5312057964494874871',     # 💠 Diamond
+    '\U0001f4f1': '5319228768877839193',     # 📱 Phone
+    '\U0001f4e8': '5233582387941630314',     # 📨 Inbox
+    '\u26a1': '5233732076141828188',          # ⚡ Lightning
+    # NOTE: 🔐 (U+1F510 lock) and ✨/🚀/🧭/🎯/📨/📡/⚠️/🌍-globe have NO premium id in
+    # the pack, so they stay as plain emoji characters in text/buttons.
+    # Navigation arrows
+    '\u2b05\ufe0f': '5386340832628462681',  # ⬅️ left arrow
+    '\u27a1\ufe0f': '5332684922891025384',  # ➡️ right arrow
+    '\u25c0\ufe0f': '5332819376842226496',  # ◀️ reverse
+    '\u25b6\ufe0f': '5332722143077613679',  # ▶️ play
+    '\U0001f519': '5332369758190845562',     # 🔙 Back
+    # Colored status dots
+    '\U0001f534': '5377620300965888937',     # 🔴 red
+    '\U0001f7e0': '5332369556327383798',     # 🟠 orange
+    '\U0001f7e1': '5332345843812943191',     # 🟡 yellow
+    '\U0001f7e2': '5332440771180116150',     # 🟢 green
+    '\U0001f535': '5332571076192910271',     # 🔵 blue
+    '\U0001f7e3': '5332694612337244014',     # 🟣 purple
+    # Misc UI
+    '\u2699\ufe0f': '5366231924597604153',   # ⚙️ settings/gear
+    '\U0001f530': '5348149223223211884',     # 🔰 new/badge
+    '\U0001f3af': '5319276623403458717',     # 🎯 target (reuse pin-like icon)
 }
+
+def get_premium_id(emoji_char):
+    """Return the premium custom_emoji_id string for a standard emoji, or '' if none."""
+    return _PREMIUM_EMOJI_DB.get(emoji_char, '')
 
 def pe(emoji_char):
     """Return premium emoji HTML tag for a standard emoji character.
-    Usage: f"{pe('💬')} WhatsApp" -> renders as premium emoji
+    Usage: f"{pe('📞')} WhatsApp" -> renders as premium emoji in HTML-parsed text.
     """
-    eid = _PREMIUM_EMOJI_DB.get(emoji_char)
+    eid = get_premium_id(emoji_char)
     if eid:
         return f'<tg-emoji emoji-id="{eid}">{emoji_char}</tg-emoji>'
     return emoji_char
+
+def icon_kwargs(emoji_char, style=None):
+    """Build api_kwargs for an InlineKeyboardButton premium icon.
+    Returns {'icon_custom_emoji_id': id, 'style': style} when the emoji has a
+    premium id, otherwise {'style': style} (plain text emoji stays in the label).
+    style is optional and included only when truthy.
+    """
+    eid = get_premium_id(emoji_char)
+    kw = {}
+    if eid:
+        kw['icon_custom_emoji_id'] = eid
+    if style:
+        kw['style'] = style
+    return kw
 
 
 SERVICE_ICONS = {
@@ -1519,6 +1560,99 @@ def get_country_code(country_name):
     
     return 'XX'
 
+# Premium custom-emoji IDs for country flags (from "custom emoji id.txt" Pack: Flags).
+# Key = 2-letter ISO country code, value = 19-digit Telegram custom_emoji_id.
+COUNTRY_FLAG_EMOJI_IDS = {
+    'AD': '5221987861733061751', 'AE': '5224565851427976312', 'AF': '5222096009009575868',
+    'AG': '5224544866217765554', 'AL': '5224312057515486246', 'AM': '5224369957969603463',
+    'AO': '5224379767674907895', 'AR': '5221980461504411710', 'AT': '5224520754271366661',
+    'AU': '5224659803837574114', 'AZ': '5224426544163728284', 'BA': '5224496092569155254',
+    'BB': '5222156533688712094', 'BD': '5224407289825340729', 'BE': '5224513182244024630',
+    'BF': '5222356541725749790', 'BG': '5222092074819530668', 'BH': '5224492892818518587',
+    'BI': '5224490444687158452', 'BJ': '5222024115552009151', 'BM': '5222482143749353810',
+    'BN': '5224435958732042406', 'BO': '5224675484763170798', 'BR': '5224688610183228070',
+    'BS': '5224504167107668172', 'BT': '5224541065171710147', 'BW': '5224288456670196085',
+    'BY': '5280820319458707404', 'BZ': '5224316292353241916', 'CA': '5222001124592071204',
+    'CD': '5224398158724871677', 'CF': '5222073662294733523', 'CG': '5222104268231684600',
+    'CH': '5224707263226194753', 'CL': '5222350726340032308', 'CM': '5222270788408717651',
+    'CN': '5224435456220868088', 'CO': '5224455152940886669', 'CR': '5222453801260168022',
+    'CV': '5222347737042792258', 'CY': '5222431454545327055', 'CZ': '5222073533445714675',
+    'DE': '5222165617544542414', 'DJ': '5224203012590810589', 'DK': '5222297215342490217',
+    'DM': '5222337489250824921', 'DO': '5224286412265763450', 'DZ': '5224260376174015500',
+    'EC': '5224191188545840926', 'EE': '5222195463272281351', 'EG': '5222161185138292290',
+    'ES': '5222024776976970940', 'ET': '5224467805914542024', 'EU': '5222108911091331711',
+    'FI': '5224282903277482188', 'FJ': '5221962676044838178', 'FM': '5222280486444873367',
+    'FO': '5280985770188885026', 'FR': '5222029789203804982', 'GA': '5224669733801963467',
+    'GB': '5224518800061245598', 'GD': '5222234560359577687', 'GE': '5222152195771742239',
+    'GH': '5224511339703056124', 'GM': '5221949872747330159', 'GN': '5222337588035073000',
+    'GQ': '5222172811614762423', 'GR': '5222463490706389920', 'GT': '5222128302868672826',
+    'GW': '5224705704153066489', 'GY': '5224570532942329532', 'HN': '5222229234600130045',
+    'HR': '5221967765581085099', 'HT': '5224683146984831315', 'HU': '5224691998912427164',
+    'ID': '5224405893960969756', 'IE': '5224257017509588818', 'IL': '5224720599099648709',
+    'IN': '5222300011366200403', 'IQ': '5221980268230882832', 'IR': '5224374154152653367',
+    'IS': '5222063229819172521', 'IT': '5222460101977190141', 'JM': '5222007034467074185',
+    'JO': '5222292177345853436', 'JP': '5222390089715299207', 'KE': '5222089648163009103',
+    'KG': '5224388147156102493', 'KH': '5224189882875785448', 'KI': '5224652244695134610',
+    'KM': '5222398735484466247', 'KR': '5222345550904439270', 'KW': '5221949726718442491',
+    'KZ': '5222276376161171525', 'LA': '5224200843632324642', 'LB': '5222244425899455269',
+    'LC': '5222000927023577045', 'LK': '5224277294050192388', 'LR': '5221998371518034740',
+    'LS': '5224245850594619415', 'LT': '5224245902134226386', 'LU': '5224499567197700690',
+    'LV': '5224401229626484931', 'LY': '5222194286451242896', 'MA': '5224530035695693965',
+    'MC': '5221937224068640464', 'MD': '5224216473018314447', 'ME': '5224463399278096980',
+    'MG': '5222042605386217334', 'MH': '5224538449536624503', 'MK': '5222470435668505656',
+    'ML': '5224322352552096671', 'MN': '5224192257992701543', 'MQ': '5281027792148909351',
+    'MT': '5224731388057497620', 'MU': '5224238347286752315', 'MV': '5224393700548814960',
+    'MX': '5221971386238514431', 'MY': '5224312886444174057', 'MZ': '5222470388423864826',
+    'NA': '5224690826386351746', 'NE': '5222099049846420864', 'NG': '5224723614166691638',
+    'NL': '5224516489368841614', 'NO': '5224465228934163949', 'NP': '5222444378101925267',
+    'NZ': '5224573595254009705', 'OM': '5222396686785066306', 'PA': '5222111719999945107',
+    'PE': '5224482026551258766', 'PG': '5224500164198149905', 'PH': '5222065042295376892',
+    'PK': '5224637061985742245', 'PL': '5224670399521892983', 'PR': '5224220115150582423',
+    'PS': '5222041677673282461', 'PT': '5224404094369672274', 'PY': '5222152565138929235',
+    'QA': '5222225596762830469', 'RO': '5222273794885826118', 'RS': '5222145396838512729',
+    'RU': '5280582975270963511', 'RW': '5222449197055227754', 'SA': '5224698145010624573',
+    'SB': '5222290588207954120', 'SC': '5224467496676896871', 'SD': '5224372990216514135',
+    'SE': '5222201098269373561', 'SG': '5224194023224257181', 'SI': '5224660718665607511',
+    'SK': '5222401879400528047', 'SL': '5224420995065983217', 'SN': '5224358988623130949',
+    'SO': '5222370504664428325', 'SR': '5224567367551428669', 'SS': '5224618146949773268',
+    'ST': '5221953304426198315', 'SV': '5224337131534559907', 'SZ': '5224269666188274723',
+    'TD': '5222060468155204001', 'TG': '5222408051268532030', 'TH': '5224638530864556281',
+    'TJ': '5222217865821696536', 'TL': '5224515905253291409', 'TM': '5224256935905208951',
+    'TN': '5221991375016310330', 'TR': '5224601903383457698', 'TT': '5224391883777651050',
+    'TZ': '5224397364155923150', 'UA': '5222250679371839695', 'UG': '5222464040462200940',
+    'UN': '5451772687993031127', 'US': '5224321781321442532', 'UY': '5222466849370813232',
+    'UZ': '5222404546575219535', 'VA': '5222420266155520507', 'VC': '5224541228380467535',
+    'VI': '5224395882392201810', 'VN': '5222359651282071925', 'VU': '5222126748090512778',
+    'WS': '5224660353593387686', 'XK': '5222197129719592160', 'YE': '5222300655611294950',
+    'ZA': '5224696216570309138', 'ZM': '5224646626877911277', 'ZW': '5222060442385397848',
+}
+
+def get_country_flag_id(country_name):
+    """Return the premium custom_emoji_id for a country's flag, or '' if none."""
+    iso = get_country_code(country_name)
+    if iso and iso != 'XX':
+        return COUNTRY_FLAG_EMOJI_IDS.get(iso, '')
+    return ''
+
+def flag_pe(country_name):
+    """Return <tg-emoji> tag for a country flag (premium) or plain flag char (fallback).
+    For use in HTML-parsed message text."""
+    fid = get_country_flag_id(country_name)
+    plain_flag = get_country_flag(country_name)
+    if fid:
+        return f'<tg-emoji emoji-id="{fid}">{plain_flag}</tg-emoji>'
+    return plain_flag
+
+def flag_icon_kwargs(country_name, style=None):
+    """Build api_kwargs for an InlineKeyboardButton premium country-flag icon."""
+    fid = get_country_flag_id(country_name)
+    kw = {}
+    if fid:
+        kw['icon_custom_emoji_id'] = fid
+    if style:
+        kw['style'] = style
+    return kw
+
 def detect_country_from_number(number):
     """Detect country name from number prefix."""
     if not number:
@@ -1675,8 +1809,8 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     keyboard = []
     for display_num in formatted_numbers:
         keyboard.append([InlineKeyboardButton(
-            f"📱 {display_num}",
-            api_kwargs={"copy_text": {"text": display_num}}
+            f"  {display_num}",
+            api_kwargs={"copy_text": {"text": display_num}, "icon_custom_emoji_id": "5319228768877839193"}
         )])
 
     # Allow fetching fresh numbers from the same range via existing rng_ callback flow.
@@ -1687,7 +1821,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
         'range_id': selected_range,
         'range_name': selected_range
     }
-    keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
+    keyboard.append([InlineKeyboardButton("  Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     country_flag = get_country_flag(country_name)
@@ -1698,16 +1832,17 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     }
     service_icon = service_icons.get(found_service, "📱")
     message_text = (
-        f"{service_icon} {found_service.upper()}\n"
-        f"{country_flag} {country_name}\n"
-        f"📋 Range: {selected_range}\n\n"
+        f"{pe(service_icon)} {html.escape(found_service.upper())}\n"
+        f"{flag_pe(country_name)} {html.escape(str(country_name))}\n"
+        f"📋 Range: {html.escape(str(selected_range))}\n\n"
         f"✅ {len(numbers_list)} numbers received:\n\n"
         "Tap a number to copy it."
     )
 
     sent_msg = await update.message.reply_text(
         message_text,
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        parse_mode='HTML'
     )
 
     update_user_session(
@@ -2142,7 +2277,7 @@ def build_console_channel_message(log_item):
         "telegram": "Telegram"
     }.get(service_key, service_raw)
 
-    return f"{country_flag} #{country_code} {pe(get_service_icon(service_name))} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
+    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_name))} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2163,9 +2298,9 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Show service selection first (fixed three: WhatsApp, Facebook, Others)
     keyboard = [
-        [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
-        [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"style": "primary"})],
-        [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
+        [InlineKeyboardButton("Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
+        [InlineKeyboardButton("Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
         [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2229,8 +2364,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = [
                 [
-                    InlineKeyboardButton("✅ Approve", callback_data=f"admin_approve_{user_id}", api_kwargs={"style": "success"}),
-                    InlineKeyboardButton("❌ Reject", callback_data=f"admin_reject_{user_id}", api_kwargs={"style": "danger"})
+                    InlineKeyboardButton("  Approve", callback_data=f"admin_approve_{user_id}", api_kwargs={"icon_custom_emoji_id": "5273806972871787310", "style": "success"}),
+                    InlineKeyboardButton("  Reject", callback_data=f"admin_reject_{user_id}", api_kwargs={"icon_custom_emoji_id": "5271934564699226262", "style": "danger"})
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2544,9 +2679,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      count = services_found[svc]
                      # Capitalize for display
                      label = f"{svc} ({count})"
-                     
+
                      # Callback: sel_others_{idx} (Changed from service_others to avoid conflict)
-                     row.append(InlineKeyboardButton(label, callback_data=f"sel_others_{idx}", api_kwargs={"style": "primary"}))
+                     svc_kw = icon_kwargs(get_service_icon(svc), style="primary")
+                     row.append(InlineKeyboardButton(label, callback_data=f"sel_others_{idx}", api_kwargs=svc_kw if svc_kw else {"style": "primary"}))
                      
                      if len(row) == 2:
                          keyboard.append(row)
@@ -2559,13 +2695,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if total_pages > 1:
                     nav_row = []
                     if page > 0:
-                        nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="sel_others_prev"))
+                        nav_row.append(InlineKeyboardButton("  Prev", api_kwargs={"icon_custom_emoji_id": "5332819376842226496", "style": "primary"}, callback_data="sel_others_prev"))
                     nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="sel_others_noop"))
                     if page < total_pages - 1:
-                        nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="sel_others_next"))
+                        nav_row.append(InlineKeyboardButton("Next  ", api_kwargs={"icon_custom_emoji_id": "5332722143077613679", "style": "primary"}, callback_data="sel_others_next"))
                     keyboard.append(nav_row)
                 
-                keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
+                keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
@@ -2654,17 +2790,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             flag1 = get_country_flag(c1)
             label1 = format_country_label(flag1, c1, time1)
             
-            row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}", api_kwargs={"style": "primary"}))
-            
+            flag_kw1 = flag_icon_kwargs(c1, style="primary")
+            row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}", api_kwargs=flag_kw1 if flag_kw1 else {"style": "primary"}))
+
             if i + 1 < len(sorted_countries):
                 c2 = sorted_countries[i + 1]
                 _, time2 = get_country_best_time(c2)
                 flag2 = get_country_flag(c2)
                 label2 = format_country_label(flag2, c2, time2)
-                row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}", api_kwargs={"style": "primary"}))
+                flag_kw2 = flag_icon_kwargs(c2, style="primary")
+                row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}", api_kwargs=flag_kw2 if flag_kw2 else {"style": "primary"}))
             keyboard.append(row)
 
-        keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
+        keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
@@ -2773,18 +2911,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 flag1 = get_country_flag(c1)
                 label1 = format_country_label(flag1, c1, time1)
                 
-                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}", api_kwargs={"style": "primary"}))
-                
+                flag_kw1 = flag_icon_kwargs(c1, style="primary")
+                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}", api_kwargs=flag_kw1 if flag_kw1 else {"style": "primary"}))
+
                 if i + 1 < len(sorted_countries):
                     c2 = sorted_countries[i + 1]
                     _, time2 = get_country_best_time(c2)
                     flag2 = get_country_flag(c2)
                     label2 = format_country_label(flag2, c2, time2)
-                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}", api_kwargs={"style": "primary"}))
+                    flag_kw2 = flag_icon_kwargs(c2, style="primary")
+                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}", api_kwargs=flag_kw2 if flag_kw2 else {"style": "primary"}))
                 
                 keyboard.append(row)
                 
-            keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="service_others")]) 
+            keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="service_others")]) 
             # Back goes to Main Others List (handled by service_others in main handler)
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2960,7 +3100,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for display_num in formatted_numbers:
                     # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                     # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number
-                    keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
+                    keyboard.append([InlineKeyboardButton(f"  {display_num}", api_kwargs={"copy_text": {"text": display_num}, "icon_custom_emoji_id": "5319228768877839193"})])
                 # Get country flag
                 country_flag = get_country_flag(country_name)
                 
@@ -2972,13 +3112,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
                 service_icon = service_icons.get(service_name, "📱")
                 
-                keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country}", api_kwargs={"style": "success"})])
-                keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
+                keyboard.append([InlineKeyboardButton("  Next Number", callback_data=f"country_{service_name}_{country}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
+                keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Format message like the reference image
-                message = f"Country: {country_flag} {country_name}\n"
-                message += f"Service: {service_icon} {service_name.capitalize()}\n"
+                message = f"Country: {flag_pe(country_name)} {html.escape(str(country_name))}\n"
+                message += f"Service: {pe(service_icon)} {html.escape(service_name.capitalize())}\n"
                 message += f"Waiting for OTP...... ⏳"
                 
                 await context.bot.edit_message_text(
@@ -3076,19 +3216,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(country_list), 2):
                 row = []
                 flag1 = get_country_flag(country_list[i])
+                fkw1 = flag_icon_kwargs(country_list[i], style="primary")
                 row.append(InlineKeyboardButton(
                     f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}"
+                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}",
+                    api_kwargs=fkw1 if fkw1 else {"style": "primary"}
                 ))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
+                    fkw2 = flag_icon_kwargs(country_list[i + 1], style="primary")
                     row.append(InlineKeyboardButton(
                         f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}"
+                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}",
+                        api_kwargs=fkw2 if fkw2 else {"style": "primary"}
                     ))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Services", api_kwargs={"style": "danger"}, callback_data="rangechkr_service_others")])
+            keyboard.append([InlineKeyboardButton("  Services", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="rangechkr_service_others")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
@@ -3244,10 +3388,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Back Button
             if service_name.lower() in ['whatsapp', 'facebook']:
-                 keyboard.append([InlineKeyboardButton("🔙 Countries", api_kwargs={"style": "danger"}, callback_data=f"rangechkr_service_{service_name}")])
+                 keyboard.append([InlineKeyboardButton("  Countries", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data=f"rangechkr_service_{service_name}")])
             else:
                  # For Others, just go back to App List for now
-                 keyboard.append([InlineKeyboardButton("🔙 Services", api_kwargs={"style": "danger"}, callback_data="rangechkr_service_others")])
+                 keyboard.append([InlineKeyboardButton("  Services", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="rangechkr_service_others")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -3321,9 +3465,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
                         count = services_found[svc]
                         label = f"{svc} ({count})"
-                        
+
                         # Callback: rangechkr_others_{idx}
-                        row.append(InlineKeyboardButton(label, callback_data=f"rangechkr_others_{idx}", api_kwargs={"style": "primary"}))
+                        svc_kw = icon_kwargs(get_service_icon(svc), style="primary")
+                        row.append(InlineKeyboardButton(label, callback_data=f"rangechkr_others_{idx}", api_kwargs=svc_kw if svc_kw else {"style": "primary"}))
                         
                         if len(row) == 2:
                             keyboard.append(row)
@@ -3336,13 +3481,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if total_pages > 1:
                         nav_row = []
                         if page > 0:
-                            nav_row.append(InlineKeyboardButton("◀️ Prev", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_prev"))
+                            nav_row.append(InlineKeyboardButton("  Prev", api_kwargs={"icon_custom_emoji_id": "5332819376842226496", "style": "primary"}, callback_data="rangechkr_others_prev"))
                         nav_row.append(InlineKeyboardButton(f"Page {page + 1}/{total_pages}", callback_data="rangechkr_others_noop"))
                         if page < total_pages - 1:
-                            nav_row.append(InlineKeyboardButton("Next ▶️", api_kwargs={"style": "primary"}, callback_data="rangechkr_others_next"))
+                            nav_row.append(InlineKeyboardButton("Next  ", api_kwargs={"icon_custom_emoji_id": "5332722143077613679", "style": "primary"}, callback_data="rangechkr_others_next"))
                         keyboard.append(nav_row)
                     
-                    keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="rangechkr_back_services")])
+                    keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="rangechkr_back_services")])
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     page_info = f" (Page {page + 1}/{total_pages})" if total_pages > 1 else ""
@@ -3401,19 +3546,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(country_list), 2):
                 row = []
                 flag1 = get_country_flag(country_list[i])
+                fkw1 = flag_icon_kwargs(country_list[i], style="primary")
                 row.append(InlineKeyboardButton(
                     f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}"
+                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}",
+                    api_kwargs=fkw1 if fkw1 else {"style": "primary"}
                 ))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
+                    fkw2 = flag_icon_kwargs(country_list[i + 1], style="primary")
                     row.append(InlineKeyboardButton(
                         f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}"
+                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}",
+                        api_kwargs=fkw2 if fkw2 else {"style": "primary"}
                     ))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Services", api_kwargs={"style": "danger"}, callback_data="rangechkr_back_services")])
+            keyboard.append([InlineKeyboardButton("  Services", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="rangechkr_back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             display_service_name = "Others" if service_name == "others" else service_name.upper()
@@ -3553,8 +3702,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     formatted_numbers.append(display_num)
                     # Use copy_text via api_kwargs - no callback_data needed for copy
                     keyboard.append([InlineKeyboardButton(
-                        f"📱 {display_num}",
-                        api_kwargs={"copy_text": {"text": display_num}}
+                        f"  {display_num}",
+                        api_kwargs={"copy_text": {"text": display_num}, "icon_custom_emoji_id": "5319228768877839193"}
                     )])
                 
                 # Use hash for change numbers button too
@@ -3566,7 +3715,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'range_id': range_id,
                     'range_name': range_name
                 }
-                keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
+                keyboard.append([InlineKeyboardButton("  Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Get country flag
@@ -3580,18 +3729,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
                 service_icon = service_icons.get(service_name, "📱")
                 
-                message_text = f"{service_icon} {service_name.upper()}\n"
+                message_text = f"{pe(service_icon)} {html.escape(service_name.upper())}\n"
                 if country_name:
-                    message_text += f"{country_flag} {country_name}\n"
-                message_text += f"📋 Range: {range_name}\n\n"
+                    message_text += f"{flag_pe(country_name)} {html.escape(str(country_name))}\n"
+                message_text += f"📋 Range: {html.escape(str(range_name))}\n\n"
                 message_text += f"✅ {len(numbers_list)} numbers received:\n\n"
                 message_text += "Tap a number to copy it."
-                
+
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=loading_message_id,
                     text=message_text,
-                    reply_markup=reply_markup
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
                 )
                 
                 # Store numbers and start monitoring
@@ -3634,9 +3784,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Range checker back to services
     elif data == "rangechkr_back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"style": "success"})],
-            [InlineKeyboardButton("👥 Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
+            [InlineKeyboardButton("Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
+            [InlineKeyboardButton("Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
             [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3648,9 +3798,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Back to services
     elif data == "back_services":
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
+            [InlineKeyboardButton("Facebook", callback_data="service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
+            [InlineKeyboardButton("Telegram", callback_data="service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
             [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3673,9 +3823,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle "Get Number" button
     if text in ("Get Number", "📲 Get Number", "🚀 Get Number"):
         keyboard = [
-            [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp", api_kwargs={"style": "success"})],
-            [InlineKeyboardButton("👥 Facebook", callback_data="service_facebook", api_kwargs={"style": "primary"})],
-            [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram", api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
+            [InlineKeyboardButton("Facebook", callback_data="service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
+            [InlineKeyboardButton("Telegram", callback_data="service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
             [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3795,13 +3945,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in range(0, len(country_list), 2):
                 row = []
                 flag1 = get_country_flag(country_list[i])
-                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}"))
+                fkw1 = flag_icon_kwargs(country_list[i], style="primary")
+                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}", api_kwargs=fkw1 if fkw1 else {"style": "primary"}))
                 if i + 1 < len(country_list):
                     flag2 = get_country_flag(country_list[i + 1])
-                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}"))
+                    fkw2 = flag_icon_kwargs(country_list[i + 1], style="primary")
+                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}", api_kwargs=fkw2 if fkw2 else {"style": "primary"}))
                 keyboard.append(row)
             
-            keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
+            keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
@@ -3881,8 +4033,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         display_num = '+' + display_num
                 # Use copy_text via api_kwargs - no callback_data needed for copy
                 keyboard.append([InlineKeyboardButton(
-                    f"📱 {display_num}",
-                    api_kwargs={"copy_text": {"text": display_num}}
+                    f"  {display_num}",
+                    api_kwargs={"copy_text": {"text": display_num}, "icon_custom_emoji_id": "5319228768877839193"}
                 )])
             
             # Use hash for change numbers button
@@ -3896,7 +4048,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'range_id': range_id,
                 'range_name': range_name
             }
-            keyboard.append([InlineKeyboardButton("🔄 Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"style": "success"})])
+            keyboard.append([InlineKeyboardButton("  Change Numbers", callback_data=f"rng_{change_hash}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Get country flag
@@ -4087,8 +4239,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     display_num = '+' + (digits_only if digits_only else display_num)
                 # Use copy_text via api_kwargs - Telegram Bot API 7.0+ feature
                 # Format: {"copy_text": {"text": "number"}} - clicking button will copy the number directly
-                keyboard.append([InlineKeyboardButton(f"📱 {display_num}", api_kwargs={"copy_text": {"text": display_num}})])
-            
+                keyboard.append([InlineKeyboardButton(f"  {display_num}", api_kwargs={"copy_text": {"text": display_num}, "icon_custom_emoji_id": "5319228768877839193"})])
+
             # Get country flag
             country_flag = get_country_flag(country_name)
             
@@ -4100,13 +4252,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             service_icon = service_icons.get(service_name, "📱")
             
-            keyboard.append([InlineKeyboardButton("🔄 Next Number", callback_data=f"country_{service_name}_{country_name}")])
-            keyboard.append([InlineKeyboardButton("🔙 Back", api_kwargs={"style": "danger"}, callback_data="back_services")])
+            keyboard.append([InlineKeyboardButton("  Next Number", callback_data=f"country_{service_name}_{country_name}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
+            keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format message like the reference image
-            message = f"Country: {country_flag} {country_name}\n"
-            message += f"Service: {service_icon} {service_name.capitalize()}\n"
+            message = f"Country: {flag_pe(country_name)} {html.escape(str(country_name))}\n"
+            message += f"Service: {pe(service_icon)} {html.escape(service_name.capitalize())}\n"
             message += f"Waiting for OTP...... ⏳"
             
             sent_msg = await update.message.reply_text(
@@ -4180,20 +4332,20 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             status_lines = []
             for num in numbers:
                 status_label = "OTP" if num in received_otps else "Expired"
-                button_label = f"📱 {num} ({status_label})"
+                button_label = f"  {num} ({status_label})"
                 keyboard.append([InlineKeyboardButton(
                     button_label,
-                    api_kwargs={"copy_text": {"text": num}}
+                    api_kwargs={"copy_text": {"text": num}, "icon_custom_emoji_id": "5319228768877839193"}
                 )])
                 status_lines.append(f"{num} - {status_label}")
 
-            timeout_text = f"{service_icon} {service_name.upper()}\n"
+            timeout_text = f"{pe(service_icon)} {html.escape(service_name.upper())}\n"
             if country_name and country_name != 'Unknown':
-                timeout_text += f"{country_flag} {country_name}\n"
+                timeout_text += f"{flag_pe(country_name)} {html.escape(str(country_name))}\n"
             if range_id:
-                timeout_text += f"📋 Range: {range_id}\n"
+                timeout_text += f"📋 Range: {html.escape(str(range_id))}\n"
             timeout_text += "\n⏱️ Timeout! No OTP received within 15 minutes.\n\n"
-            timeout_text += "Number status:\n" + "\n".join(status_lines)
+            timeout_text += "Number status:\n" + html.escape("\n".join(status_lines))
 
             timeout_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
 
@@ -4203,14 +4355,16 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     chat_id=user_id,
                     message_id=message_id,
                     text=timeout_text,
-                    reply_markup=timeout_markup
+                    reply_markup=timeout_markup,
+                    parse_mode='HTML'
                 )
             else:
                 # Fallback to sending new message if message_id not available
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=timeout_text,
-                    reply_markup=timeout_markup
+                    reply_markup=timeout_markup,
+                    parse_mode='HTML'
                 )
         except Exception as e:
             logger.error(f"Error updating timeout message: {e}")
@@ -4357,7 +4511,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
                     user_otp_msg = (
-                        f"{country_flag} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
+                        f"{flag_pe(country)} #{country_code} {service.capitalize()} <code>{display_number}</code> {language}\n\n"
                         f"<b>আজকের প্রেরণা:</b> {motivation_line}"
                     )
 
@@ -4367,7 +4521,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     if not masked_number.startswith('+'):
                          masked_number = '+' + masked_number
                     service_icon = get_service_icon(service)
-                    channel_otp_msg = f"{country_flag} #{country_code} {pe(service_icon)} {service.capitalize()} {replace_mask_with_cross(masked_number)} {language}"
+                    channel_otp_msg = f"{flag_pe(country)} #{country_code} {pe(service_icon)} {service.capitalize()} {replace_mask_with_cross(masked_number)} {language}"
                     
                     # Build deep-link URL for the "Range" button (channel only)
                     range_for_button = None
@@ -4383,13 +4537,13 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"{pe(chr(0x1f510))} {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]]
+                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"{pe(chr(0x1f510))} {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
+                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
                     if range_url:
-                        channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"style": "primary"}))
+                        channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5319288443153445517", "style": "primary"}))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
                     
                     # Send OTP message to user FIRST (important!)
@@ -4544,7 +4698,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
 
             channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}, "style": "success"})]
             if range_url:
-                channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"style": "primary"}))
+                channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5319288443153445517", "style": "primary"}))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
 
             try:
