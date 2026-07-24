@@ -1825,12 +1825,7 @@ async def send_numbers_from_range_link(update: Update, context: ContextTypes.DEF
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     country_flag = get_country_flag(country_name)
-    service_icons = {
-        "whatsapp": "💬",
-        "facebook": "👥",
-        "telegram": "✈️"
-    }
-    service_icon = service_icons.get(found_service, "📱")
+    service_icon = get_service_icon(found_service)
     message_text = (
         f"{pe(service_icon)} {html.escape(found_service.upper())}\n"
         f"{flag_pe(country_name)} {html.escape(str(country_name))}\n"
@@ -2246,7 +2241,6 @@ def build_console_channel_message(log_item):
     """Build channel message using legacy one-line channel template."""
     country = str(log_item.get('country') or 'Unknown').strip() or 'Unknown'
     service_raw = str(log_item.get('app_name') or 'Unknown').strip() or 'Unknown'
-    service_name = service or "Unknown"
     
     # Prioritize 'range' field for number extraction as it contains full number in this API
     raw_range = str(log_item.get('range') or '').strip()
@@ -2277,7 +2271,7 @@ def build_console_channel_message(log_item):
         "telegram": "Telegram"
     }.get(service_key, service_raw)
 
-    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_name))} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
+    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_raw))} {html.escape(service_display)} {html.escape(number_masked)} {html.escape(language)}"
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2334,9 +2328,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Show main menu buttons
         keyboard = [
-            [KeyboardButton("🚀 Get Number", api_kwargs={"style": "success"})],
-            [KeyboardButton("🎛 Number Count", api_kwargs={"style": "primary"})],
-            [KeyboardButton("📈 My Stats", api_kwargs={"style": "primary"})]
+            [KeyboardButton("  Get Number", api_kwargs={"icon_custom_emoji_id": "5319228768877839193", "style": "success"})],
+            [KeyboardButton("  Number Count", api_kwargs={"icon_custom_emoji_id": "5364295555772074912", "style": "primary"})],
+            [KeyboardButton("  My Stats", api_kwargs={"icon_custom_emoji_id": "5393583096677286721", "style": "primary"})]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         await update.message.reply_text(
@@ -2771,7 +2765,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sorted_countries.append('Unknown')
 
         # Helper for UI Truncation
-        def format_country_label(flag, name, time_str, max_len=30):
+        def format_country_label(flag, name, time_str, max_len=30, show_flag=True):
             # Keep country sort behavior by time, but do not show time text.
             available_len = max_len - 3
             if available_len < 5:
@@ -2780,16 +2774,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(name) > available_len:
                 name = name[:available_len - 3] + "..."
 
-            return f"{flag} {name}"
+            return f"{flag} {name}" if show_flag else name
 
         for i in range(0, len(sorted_countries), 2):
             row = []
-            
+
             c1 = sorted_countries[i]
             _, time1 = get_country_best_time(c1)
             flag1 = get_country_flag(c1)
-            label1 = format_country_label(flag1, c1, time1)
-            
+            has_premium1 = bool(get_country_flag_id(c1))
+            label1 = format_country_label(flag1, c1, time1, show_flag=not has_premium1)
+
             flag_kw1 = flag_icon_kwargs(c1, style="primary")
             row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c1}", api_kwargs=flag_kw1 if flag_kw1 else {"style": "primary"}))
 
@@ -2797,7 +2792,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 c2 = sorted_countries[i + 1]
                 _, time2 = get_country_best_time(c2)
                 flag2 = get_country_flag(c2)
-                label2 = format_country_label(flag2, c2, time2)
+                has_premium2 = bool(get_country_flag_id(c2))
+                label2 = format_country_label(flag2, c2, time2, show_flag=not has_premium2)
                 flag_kw2 = flag_icon_kwargs(c2, style="primary")
                 row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c2}", api_kwargs=flag_kw2 if flag_kw2 else {"style": "primary"}))
             keyboard.append(row)
@@ -2909,8 +2905,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 c1 = sorted_countries[i]
                 _, time1 = get_country_best_time(c1)
                 flag1 = get_country_flag(c1)
-                label1 = format_country_label(flag1, c1, time1)
-                
+                label1 = format_country_label(flag1, c1, time1, show_flag=not bool(get_country_flag_id(c1)))
+
                 flag_kw1 = flag_icon_kwargs(c1, style="primary")
                 row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_key}_{c1}", api_kwargs=flag_kw1 if flag_kw1 else {"style": "primary"}))
 
@@ -2918,7 +2914,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     c2 = sorted_countries[i + 1]
                     _, time2 = get_country_best_time(c2)
                     flag2 = get_country_flag(c2)
-                    label2 = format_country_label(flag2, c2, time2)
+                    label2 = format_country_label(flag2, c2, time2, show_flag=not bool(get_country_flag_id(c2)))
                     flag_kw2 = flag_icon_kwargs(c2, style="primary")
                     row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_key}_{c2}", api_kwargs=flag_kw2 if flag_kw2 else {"style": "primary"}))
                 
@@ -3105,12 +3101,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 country_flag = get_country_flag(country_name)
                 
                 # Get service icon
-                service_icons = {
-                    "whatsapp": "💬",
-                    "facebook": "👥",
-                    "telegram": "✈️"
-                }
-                service_icon = service_icons.get(service_name, "📱")
+                service_icon = get_service_icon(service_name)
                 
                 keyboard.append([InlineKeyboardButton("  Next Number", callback_data=f"country_{service_name}_{country}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
                 keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
@@ -3215,19 +3206,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             for i in range(0, len(country_list), 2):
                 row = []
-                flag1 = get_country_flag(country_list[i])
-                fkw1 = flag_icon_kwargs(country_list[i], style="primary")
+                c_name1 = country_list[i]
+                flag1 = get_country_flag(c_name1)
+                fkw1 = flag_icon_kwargs(c_name1, style="primary")
+                label1 = f"{flag1} {c_name1}" if not fkw1.get('icon_custom_emoji_id') else c_name1
                 row.append(InlineKeyboardButton(
-                    f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_key}_{country_list[i]}",
+                    label1,
+                    callback_data=f"rangechkr_country_{service_key}_{c_name1}",
                     api_kwargs=fkw1 if fkw1 else {"style": "primary"}
                 ))
                 if i + 1 < len(country_list):
-                    flag2 = get_country_flag(country_list[i + 1])
-                    fkw2 = flag_icon_kwargs(country_list[i + 1], style="primary")
+                    c_name2 = country_list[i + 1]
+                    flag2 = get_country_flag(c_name2)
+                    fkw2 = flag_icon_kwargs(c_name2, style="primary")
+                    label2 = f"{flag2} {c_name2}" if not fkw2.get('icon_custom_emoji_id') else c_name2
                     row.append(InlineKeyboardButton(
-                        f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_key}_{country_list[i + 1]}",
+                        label2,
+                        callback_data=f"rangechkr_country_{service_key}_{c_name2}",
                         api_kwargs=fkw2 if fkw2 else {"style": "primary"}
                     ))
                 keyboard.append(row)
@@ -3545,19 +3540,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             for i in range(0, len(country_list), 2):
                 row = []
-                flag1 = get_country_flag(country_list[i])
-                fkw1 = flag_icon_kwargs(country_list[i], style="primary")
+                c_name1 = country_list[i]
+                flag1 = get_country_flag(c_name1)
+                fkw1 = flag_icon_kwargs(c_name1, style="primary")
+                label1 = f"{flag1} {c_name1}" if not fkw1.get('icon_custom_emoji_id') else c_name1
                 row.append(InlineKeyboardButton(
-                    f"{flag1} {country_list[i]}",
-                    callback_data=f"rangechkr_country_{service_name}_{country_list[i]}",
+                    label1,
+                    callback_data=f"rangechkr_country_{service_name}_{c_name1}",
                     api_kwargs=fkw1 if fkw1 else {"style": "primary"}
                 ))
                 if i + 1 < len(country_list):
-                    flag2 = get_country_flag(country_list[i + 1])
-                    fkw2 = flag_icon_kwargs(country_list[i + 1], style="primary")
+                    c_name2 = country_list[i + 1]
+                    flag2 = get_country_flag(c_name2)
+                    fkw2 = flag_icon_kwargs(c_name2, style="primary")
+                    label2 = f"{flag2} {c_name2}" if not fkw2.get('icon_custom_emoji_id') else c_name2
                     row.append(InlineKeyboardButton(
-                        f"{flag2} {country_list[i + 1]}",
-                        callback_data=f"rangechkr_country_{service_name}_{country_list[i + 1]}",
+                        label2,
+                        callback_data=f"rangechkr_country_{service_name}_{c_name2}",
                         api_kwargs=fkw2 if fkw2 else {"style": "primary"}
                     ))
                 keyboard.append(row)
@@ -3722,12 +3721,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 country_flag = get_country_flag(country_name) if country_name else "🌍"
                 
                 # Get service icon
-                service_icons = {
-                    "whatsapp": "💬",
-                    "facebook": "👥",
-                    "telegram": "✈️"
-                }
-                service_icon = service_icons.get(service_name, "📱")
+                service_icon = get_service_icon(service_name)
                 
                 message_text = f"{pe(service_icon)} {html.escape(service_name.upper())}\n"
                 if country_name:
@@ -3821,7 +3815,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "Get Number" button
-    if text in ("Get Number", "📲 Get Number", "🚀 Get Number"):
+    if text.strip() in ("Get Number", "📲 Get Number", "🚀 Get Number"):
         keyboard = [
             [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
             [InlineKeyboardButton("Facebook", callback_data="service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
@@ -3836,7 +3830,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "Set Number Count" button
-    if text in ("Set Number Count", "🧮 Set Number Count", "⚙️ Number Count", "🎛 Number Count", "Number Count"):
+    if text.strip() in ("Set Number Count", "🧮 Set Number Count", "⚙️ Number Count", "🎛 Number Count", "Number Count"):
         # Get current count
         session = get_user_session(user_id)
         current_count = session.get('number_count', 2) if session else 2
@@ -3857,7 +3851,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "My Stats" button
-    if text in ("My Stats", "📊 My Stats", "📈 My Stats"):
+    if text.strip() in ("My Stats", "📊 My Stats", "📈 My Stats"):
         today_count = get_today_otp_count(user_id)
         bd_now = get_bd_now()
         await update.message.reply_text(
@@ -3944,13 +3938,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create inline keyboard rows (2 buttons per row)
             for i in range(0, len(country_list), 2):
                 row = []
-                flag1 = get_country_flag(country_list[i])
-                fkw1 = flag_icon_kwargs(country_list[i], style="primary")
-                row.append(InlineKeyboardButton(f"{flag1} {country_list[i]}", callback_data=f"country_{service_name}_{country_list[i]}", api_kwargs=fkw1 if fkw1 else {"style": "primary"}))
+                c_name1 = country_list[i]
+                flag1 = get_country_flag(c_name1)
+                fkw1 = flag_icon_kwargs(c_name1, style="primary")
+                label1 = f"{flag1} {c_name1}" if not fkw1.get('icon_custom_emoji_id') else c_name1
+                row.append(InlineKeyboardButton(label1, callback_data=f"country_{service_name}_{c_name1}", api_kwargs=fkw1 if fkw1 else {"style": "primary"}))
                 if i + 1 < len(country_list):
-                    flag2 = get_country_flag(country_list[i + 1])
-                    fkw2 = flag_icon_kwargs(country_list[i + 1], style="primary")
-                    row.append(InlineKeyboardButton(f"{flag2} {country_list[i + 1]}", callback_data=f"country_{service_name}_{country_list[i + 1]}", api_kwargs=fkw2 if fkw2 else {"style": "primary"}))
+                    c_name2 = country_list[i + 1]
+                    flag2 = get_country_flag(c_name2)
+                    fkw2 = flag_icon_kwargs(c_name2, style="primary")
+                    label2 = f"{flag2} {c_name2}" if not fkw2.get('icon_custom_emoji_id') else c_name2
+                    row.append(InlineKeyboardButton(label2, callback_data=f"country_{service_name}_{c_name2}", api_kwargs=fkw2 if fkw2 else {"style": "primary"}))
                 keyboard.append(row)
             
             keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
@@ -4055,14 +4053,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             country_flag = get_country_flag(country_name) if country_name else "🌍"
             
             # Get service icon
-            service_icons = {
-                "whatsapp": "💬",
-                "facebook": "👥",
-                "telegram": "✈️"
-            }
-            service_icon = service_icons.get(found_service, "📱")
+            service_icon = get_service_icon(found_service)
             
-            message_text = f"{service_icon} {found_service.upper()}\n"
+            message_text = f"{pe(service_icon)} {html.escape(found_service.upper())}\n"
             if country_name:
                 message_text += f"{country_flag} {country_name}\n"
             message_text += f"📋 Range: {range_id}\n\n"
@@ -4243,15 +4236,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Get country flag
             country_flag = get_country_flag(country_name)
-            
-            # Get service icon
-            service_icons = {
-                "whatsapp": "💬",
-                "facebook": "👥",
-                "telegram": "✈️"
-            }
-            service_icon = service_icons.get(service_name, "📱")
-            
+
+            # Get service icon (premium-resolvable via SERVICE_ICONS)
+            service_icon = get_service_icon(service_name)
+
             keyboard.append([InlineKeyboardButton("  Next Number", callback_data=f"country_{service_name}_{country_name}", api_kwargs={"icon_custom_emoji_id": "5332713338394655534", "style": "success"})])
             keyboard.append([InlineKeyboardButton("  Back", api_kwargs={"icon_custom_emoji_id": "5332369758190845562", "style": "danger"}, callback_data="back_services")])
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -4320,12 +4308,7 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
             country_name = str(job_data.get('country') or 'Unknown')
             range_id = str(job_data.get('range_id') or '').strip()
 
-            service_icons = {
-                "whatsapp": "💬",
-                "facebook": "👥",
-                "telegram": "✈️"
-            }
-            service_icon = service_icons.get(service_name, "📱")
+            service_icon = get_service_icon(service_name)
             country_flag = get_country_flag(country_name) if country_name and country_name != 'Unknown' else "🌍"
 
             keyboard = []
