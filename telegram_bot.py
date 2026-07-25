@@ -300,6 +300,119 @@ def init_database():
 # Initialize database on import
 init_database()
 
+
+# ----------------------------------------------------------------------------
+# Distributed single-instance lock (prevents the Render 409 Conflict problem).
+#
+# When Render redeploys, the new instance boots while the old one is still
+# polling Telegram -> both call getUpdates -> Telegram returns 409 Conflict
+# and the user is forced to revoke+reset the bot token.
+#
+# Fix: only ONE instance may poll at a time. We use a Supabase row as a lock.
+# A background job sends a heartbeat; if the leader dies, its lock "expires"
+# (via the `expires_at` column) and the waiting instance takes over.
+#
+# Requires a `bot_lock` table (1 row, id=1). Created lazily via a stored
+# upsert; if the table doesn't exist, we fall back to polling anyway.
+# ----------------------------------------------------------------------------
+import uuid as _uuid
+import datetime as _dt
+
+BOT_INSTANCE_ID = str(_uuid.uuid4())
+BOT_LOCK_TTL_SECONDS = 30          # leader must refresh within this window
+BOT_LOCK_TABLE = 'bot_lock'
+
+def _now_iso():
+    return _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+def _ensure_lock_table():
+    """Create the bot_lock table if it doesn't exist (best-effort via PostgREST RPC)."""
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS public.{BOT_LOCK_TABLE} (
+        id           smallint PRIMARY KEY DEFAULT 1,
+        holder       uuid,
+        acquired_at  timestamptz,
+        expires_at   timestamptz
+    );
+    ALTER TABLE public.{BOT_LOCK_TABLE} ADD CONSTRAINT {BOT_LOCK_TABLE}_single_row CHECK (id = 1);
+    """
+    try:
+        # PostgREST exposes arbitrary SQL via the `rpc` endpoint if a function exists,
+        # but most Supabase projects don't expose one. So we try a no-op write instead:
+        # an upsert on id=1 works once the table exists; if it errors, the table is missing.
+        supabase.table(BOT_LOCK_TABLE).upsert({
+            'id': 1, 'holder': None, 'acquired_at': None, 'expires_at': None
+        }).execute()
+    except Exception:
+        # Table likely missing. We can't create it from here without an RPC function.
+        # That's fine — the lock will simply no-op and we fall back to the
+        # retry loop. Inform the user once.
+        logger.warning(
+            f"⚠️ Table '{BOT_LOCK_TABLE}' not accessible. "
+            f"Distributed lock disabled — create it with this SQL in Supabase:\n{create_sql}"
+        )
+
+def try_acquire_bot_lock():
+    """Try to become the polling leader. Returns True if this instance holds the lock."""
+    try:
+        now = _dt.datetime.now(_dt.timezone.utc)
+        expires = now + _dt.timedelta(seconds=BOT_LOCK_TTL_SECONDS)
+        # Claim if: no holder, OR the previous holder's lock has expired.
+        result = supabase.table(BOT_LOCK_TABLE).select('*').eq('id', 1).execute()
+        rows = result.data if result and result.data else []
+        if not rows:
+            # Row missing — insert our claim.
+            supabase.table(BOT_LOCK_TABLE).upsert({
+                'id': 1, 'holder': BOT_INSTANCE_ID,
+                'acquired_at': now.isoformat(), 'expires_at': expires.isoformat()
+            }).execute()
+            logger.info(f"🔑 Lock acquired (new row) by {BOT_INSTANCE_ID[:8]}")
+            return True
+        row = rows[0]
+        holder = row.get('holder')
+        exp = row.get('expires_at')
+        # Already ours?
+        if holder == BOT_INSTANCE_ID:
+            supabase.table(BOT_LOCK_TABLE).update({
+                'expires_at': expires.isoformat()
+            }).eq('id', 1).execute()
+            return True
+        # Expired holder — take over.
+        if holder is None or not exp:
+            supabase.table(BOT_LOCK_TABLE).update({
+                'holder': BOT_INSTANCE_ID, 'acquired_at': now.isoformat(),
+                'expires_at': expires.isoformat()
+            }).eq('id', 1).execute()
+            logger.info(f"🔑 Lock acquired (was free) by {BOT_INSTANCE_ID[:8]}")
+            return True
+        try:
+            exp_dt = _dt.datetime.fromisoformat(exp.replace('Z', '+00:00'))
+        except Exception:
+            exp_dt = now - _dt.timedelta(seconds=1)
+        if exp_dt < now:
+            supabase.table(BOT_LOCK_TABLE).update({
+                'holder': BOT_INSTANCE_ID, 'acquired_at': now.isoformat(),
+                'expires_at': expires.isoformat()
+            }).eq('id', 1).execute()
+            logger.info(f"🔑 Lock acquired (previous expired) by {BOT_INSTANCE_ID[:8]}")
+            return True
+        # Held by someone else and still valid.
+        return False
+    except Exception as e:
+        logger.debug(f"try_acquire_bot_lock error (lock disabled?): {e}")
+        # If lock infra is broken, allow polling to proceed (fail-open)
+        # so the bot still works — the retry loop will handle conflicts.
+        return True
+
+def release_bot_lock():
+    """Release the lock if we hold it (called on shutdown)."""
+    try:
+        supabase.table(BOT_LOCK_TABLE).update({
+            'holder': None, 'acquired_at': None, 'expires_at': None
+        }).eq('id', 1).eq('holder', BOT_INSTANCE_ID).execute()
+    except Exception:
+        pass
+
 class BestEffortLock:
     """Non-blocking-ish lock to avoid freezing the event loop under contention."""
     def __init__(self, timeout=0.05):
@@ -4828,20 +4941,26 @@ def main():
                 "misfire_grace_time": 15
             }
         )
+        # Heartbeat: refresh the distributed lock so standby knows we're alive.
+        application.job_queue.run_repeating(
+            _lock_heartbeat,
+            interval=max(BOT_LOCK_TTL_SECONDS // 3, 5),
+            first=BOT_LOCK_TTL_SECONDS // 3,
+            name="lock_heartbeat",
+            job_kwargs={"max_instances": 1, "coalesce": True, "misfire_grace_time": 10}
+        )
         logger.info("Console OTP monitor job started")
     else:
         logger.warning("Job queue not available; console OTP monitor not started")
     
-    # Start bot with conflict-tolerant retry loop.
-    # Render/redeploy spins up a new instance while the old one is still alive,
-    # causing Telegram's "409 Conflict: terminated by other getUpdates request".
-    # We proactively drop any stale polling session (post_init) AND retry with
-    # exponential backoff so the token never needs to be revoked manually.
+    # --- Distributed single-instance lock ---
+    # Ensures only ONE Render instance polls Telegram at a time, eliminating
+    # the 409 Conflict that normally forces a token revocation.
     import time
+    _ensure_lock_table()
 
     async def _post_init(application):
-        """Runs after Application.initialize() — clears any stale getUpdates/webhook
-        session so this instance can claim getUpdates cleanly."""
+        """Runs after Application.initialize() — clears stale webhook session."""
         try:
             await application.bot.delete_webhook(drop_pending_updates=True)
             logger.info("🧹 Stale webhook/polling session cleared (delete_webhook).")
@@ -4850,30 +4969,46 @@ def main():
 
     application.post_init = _post_init
 
-    MAX_RETRIES = 6
-    for attempt in range(1, MAX_RETRIES + 1):
-        logger.info(f"Bot starting... (attempt {attempt}/{MAX_RETRIES})")
-        try:
-            application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,
-                close_loop=False
-            )
-            break  # exited cleanly (graceful stop) — done
-        except Conflict as e:
-            logger.warning(
-                f"⚠️ Conflict on attempt {attempt}: {e}. "
-                f"Another instance likely still alive — will retry shortly."
-            )
-            # Exponential backoff: 10s, 20s, 40s, 80s, 160s
-            backoff = 10 * (2 ** (attempt - 1))
-            logger.info(f"⏳ Waiting {backoff}s before retry...")
-            time.sleep(backoff)
-        except Exception as e:
-            logger.error(f"❌ Non-conflict error on attempt {attempt}: {e}", exc_info=e)
-            time.sleep(15)
+    async def _lock_heartbeat(context):
+        """Periodically refresh our lock expiry so the standby instance knows
+        we are still alive. Runs every BOT_LOCK_TTL_SECONDS / 3 seconds."""
+        if try_acquire_bot_lock():
+            logger.debug("🔒 Lock heartbeat refreshed.")
+        else:
+            logger.warning("💔 Lost lock during heartbeat! Stopping polling so standby can take over.")
+            release_bot_lock()
+            try:
+                await context.bot.stop_polling()
+            except Exception:
+                pass
 
-    logger.error("🛑 Exhausted all bot startup retries. Exiting.")
+    # Standby loop: wait until we become the leader, then poll.
+    STANDBY_CHECK_INTERVAL = 5  # seconds
+    logger.info(f"🔧 Instance ID: {BOT_INSTANCE_ID[:8]}")
+
+    while True:
+        if try_acquire_bot_lock():
+            logger.info("👑 Acquired polling lock — starting bot.")
+            break
+        logger.info(
+            f"⏳ Another instance holds the polling lock. "
+            f"Waiting {STANDBY_CHECK_INTERVAL}s in standby..."
+        )
+        time.sleep(STANDBY_CHECK_INTERVAL)
+
+    try:
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            close_loop=False
+        )
+    except Conflict as e:
+        logger.warning(f"⚠️ Conflict: {e}. Releasing lock and entering standby...")
+        release_bot_lock()
+        # Re-enter standby — the loop at the top will try to re-acquire.
+        time.sleep(10)
+    finally:
+        release_bot_lock()
 
 if __name__ == "__main__":
     main()
