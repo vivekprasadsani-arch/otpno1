@@ -3159,7 +3159,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Format message like the reference image
                 message = f"Country: {flag_pe(country_name)} {html.escape(str(country_name))}\n"
                 message += f"Service: {pe(service_icon)} {html.escape(service_name.capitalize())}\n"
-                message += f"Waiting for OTP...... ⏳"
+                message += f'Waiting for OTP...... <tg-emoji emoji-id="5399850755337240950">\u23f3</tg-emoji>'
                 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
@@ -4296,7 +4296,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Format message like the reference image
             message = f"Country: {flag_pe(country_name)} {html.escape(str(country_name))}\n"
             message += f"Service: {pe(service_icon)} {html.escape(service_name.capitalize())}\n"
-            message += f"Waiting for OTP...... ⏳"
+            message += f'Waiting for OTP...... <tg-emoji emoji-id="5399850755337240950">\u23f3</tg-emoji>'
             
             sent_msg = await update.message.reply_text(
                 message,
