@@ -4667,6 +4667,9 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     language = detect_language_from_sms(sms_content) if sms_content else 'English'
                     motivation_line = html.escape(get_random_bn_otp_motivation())
 
+                    # Get service icon (must be defined before building messages)
+                    service_icon = get_service_icon(service)
+
                     # Format OTP message for USER: "🇩🇰 #DK WhatsApp <code>4540797881</code> English"
                     # Use <code> tag for click-to-copy (Telegram default format)
                     user_otp_msg = (
@@ -4679,7 +4682,6 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     masked_number = mask_number(display_number)
                     if not masked_number.startswith('+'):
                          masked_number = '+' + masked_number
-                    service_icon = get_service_icon(service)
                     channel_otp_msg = f"{flag_pe(country)} #{country_code} {pe(service_icon)} {replace_mask_with_cross(masked_number)} {language}"
                     
                     # Build deep-link URL for the "Range" button (channel only)
