@@ -159,10 +159,10 @@ def get_service_icon(service_name):
 
 
 def replace_mask_with_cross(masked_num):
-    """Replace XXX/XXXX mask in masked number with premium cross emoji."""
+    """Replace XXX/XXXX mask in masked number with premium masking cross emoji."""
     if not masked_num:
         return masked_num
-    cross = pe('\u274c')
+    cross = '<tg-emoji emoji-id="5796291784539639311">\u274c</tg-emoji>'
     return masked_num.replace('XXXX', cross).replace('XXX', cross)
 
 
@@ -2327,7 +2327,7 @@ async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
         [InlineKeyboardButton("Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
         [InlineKeyboardButton("Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
-        [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
+        [InlineKeyboardButton("Others", callback_data="rangechkr_service_others", api_kwargs={"icon_custom_emoji_id": "5472164874886846699", "style": "primary"})]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -2360,9 +2360,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Show main menu buttons
         keyboard = [
-            [KeyboardButton("  Get Number", api_kwargs={"icon_custom_emoji_id": "5319228768877839193", "style": "success"})],
-            [KeyboardButton("  Number Count", api_kwargs={"icon_custom_emoji_id": "5364295555772074912", "style": "primary"})],
-            [KeyboardButton("  My Stats", api_kwargs={"icon_custom_emoji_id": "5393583096677286721", "style": "primary"})]
+            [KeyboardButton("  Get Number", api_kwargs={"icon_custom_emoji_id": "5800770284378131920", "style": "success"})],
+            [KeyboardButton("  Number Count", api_kwargs={"icon_custom_emoji_id": "5310278924616356636", "style": "primary"})],
+            [KeyboardButton("  My Stats", api_kwargs={"icon_custom_emoji_id": "5190806721286657692", "style": "primary"})]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         await update.message.reply_text(
@@ -2599,7 +2599,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error setting number count: {e}")
             await query.edit_message_text("❌ Error setting number count. Please try again.")
         return
-    
+
     # Main menu Others pagination handlers
     if data == "sel_others_prev":
         page = context.user_data.get('service_others_page', 0)
@@ -3813,7 +3813,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("WhatsApp", callback_data="rangechkr_service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
             [InlineKeyboardButton("Facebook", callback_data="rangechkr_service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
             [InlineKeyboardButton("Telegram", callback_data="rangechkr_service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
-            [InlineKeyboardButton("✨ Others", callback_data="rangechkr_service_others", api_kwargs={"style": "danger"})]
+            [InlineKeyboardButton("Others", callback_data="rangechkr_service_others", api_kwargs={"icon_custom_emoji_id": "5472164874886846699", "style": "primary"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3827,7 +3827,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
             [InlineKeyboardButton("Facebook", callback_data="service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
             [InlineKeyboardButton("Telegram", callback_data="service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
+            [InlineKeyboardButton("Others", callback_data="service_others", api_kwargs={"icon_custom_emoji_id": "5472164874886846699", "style": "primary"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -3847,12 +3847,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "Get Number" button
-    if text.strip() in ("Get Number", "📲 Get Number", "🚀 Get Number"):
+    if text.strip() in ("Get Number", "📲 Get Number", "🚀 Get Number", "#⃣ Get Number"):
         keyboard = [
             [InlineKeyboardButton("WhatsApp", callback_data="service_whatsapp", api_kwargs={"icon_custom_emoji_id": "5233354831984353090", "style": "success"})],
             [InlineKeyboardButton("Facebook", callback_data="service_facebook", api_kwargs={"icon_custom_emoji_id": "5389064576333527180", "style": "primary"})],
             [InlineKeyboardButton("Telegram", callback_data="service_telegram", api_kwargs={"icon_custom_emoji_id": "5364125616801073577", "style": "primary"})],
-            [InlineKeyboardButton("✨ Others", callback_data="service_others", api_kwargs={"style": "danger"})]
+            [InlineKeyboardButton("Others", callback_data="service_others", api_kwargs={"icon_custom_emoji_id": "5472164874886846699", "style": "primary"})]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -3862,7 +3862,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "Set Number Count" button
-    if text.strip() in ("Set Number Count", "🧮 Set Number Count", "⚙️ Number Count", "🎛 Number Count", "Number Count"):
+    if text.strip() in ("Set Number Count", "🧮 Set Number Count", "⚙️ Number Count", "🎛 Number Count", "Number Count", "Count", "🎯 Count"):
         # Get current count
         session = get_user_session(user_id)
         current_count = session.get('number_count', 2) if session else 2
@@ -3883,7 +3883,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Handle "My Stats" button
-    if text.strip() in ("My Stats", "📊 My Stats", "📈 My Stats"):
+    if text.strip() in ("My Stats", "📊 My Stats", "📈 My Stats", "📊 Stats"):
         today_count = get_today_otp_count(user_id)
         bd_now = get_bd_now()
         await update.message.reply_text(
@@ -3892,7 +3892,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Today you received: {today_count} OTP(s)."
         )
         return
-    
+
     # Handle service selection (old format - for backward compatibility)
     if text in ["💬 WhatsApp", "👥 Facebook", "✈️ Telegram", "🟢 WhatsApp", "🔵 Facebook", "🛩 Telegram", "WhatsApp", "Facebook", "Telegram"]:
         service_map = {
@@ -4144,9 +4144,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif any(text.startswith(f) for f in ["🇦🇴", "🇰🇲", "🇷🇴", "🇩🇰", "🇧🇩", "🇮🇳", "🇺🇸", "🇬🇧", "🌍"]) or "🔙" in text or "Back" in text:
         if "Back" in text:
             keyboard = [
-                [KeyboardButton("🚀 Get Number", api_kwargs={"style": "success"})],
-                [KeyboardButton("🎛 Number Count", api_kwargs={"style": "primary"})],
-                [KeyboardButton("📈 My Stats", api_kwargs={"style": "primary"})]
+                [KeyboardButton("  Get Number", api_kwargs={"icon_custom_emoji_id": "5800770284378131920", "style": "success"})],
+                [KeyboardButton("  Number Count", api_kwargs={"icon_custom_emoji_id": "5310278924616356636", "style": "primary"})],
+                [KeyboardButton("  My Stats", api_kwargs={"icon_custom_emoji_id": "5190806721286657692", "style": "primary"})]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             await update.message.reply_text(
@@ -4552,13 +4552,13 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     range_url = await build_range_deeplink(context, range_for_button, service)
 
                     # User keyboard keeps only OTP copy.
-                    user_keyboard = [[InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]]
+                    user_keyboard = [[InlineKeyboardButton(f"{otp}", api_kwargs={"copy_text": {"text": otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
                     # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"🔐 {otp}", api_kwargs={"copy_text": {"text": otp}, "style": "success"})]
+                    channel_row = [InlineKeyboardButton(f"{otp}", api_kwargs={"copy_text": {"text": otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]
                     if range_url:
-                        channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5319288443153445517", "style": "primary"}))
+                        channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5215695279377884733", "style": "primary"}))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
                     
                     # Send OTP message to user FIRST (important!)
@@ -4711,9 +4711,9 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"🔐 {masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}, "style": "success"})]
+            channel_row = [InlineKeyboardButton(f"{masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]
             if range_url:
-                channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5319288443153445517", "style": "primary"}))
+                channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5215695279377884733", "style": "primary"}))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
 
             try:
