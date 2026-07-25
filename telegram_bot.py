@@ -1606,6 +1606,7 @@ COUNTRY_FLAG_EMOJI_IDS = {
     'BS': '5224504167107668172', 'BT': '5224541065171710147', 'BW': '5224288456670196085',
     'BY': '5280820319458707404', 'BZ': '5224316292353241916', 'CA': '5222001124592071204',
     'CD': '5224398158724871677', 'CF': '5222073662294733523', 'CG': '5222104268231684600',
+    'CI': '5873064586948647104',
     'CH': '5224707263226194753', 'CL': '5222350726340032308', 'CM': '5222270788408717651',
     'CN': '5224435456220868088', 'CO': '5224455152940886669', 'CR': '5222453801260168022',
     'CV': '5222347737042792258', 'CY': '5222431454545327055', 'CZ': '5222073533445714675',
@@ -1659,11 +1660,27 @@ COUNTRY_FLAG_EMOJI_IDS = {
     'ZA': '5224696216570309138', 'ZM': '5224646626877911277', 'ZW': '5222060442385397848',
 }
 
+def flag_to_iso(flag_emoji):
+    """Convert regional-indicator flag emoji to 2-letter ISO code."""
+    iso = ''
+    for ch in flag_emoji:
+        if 0x1F1E6 <= ord(ch) <= 0x1F1FF:
+            iso += chr(ord(ch) - 0x1F1E6 + ord('A'))
+    return iso
+
 def get_country_flag_id(country_name):
     """Return the premium custom_emoji_id for a country's flag, or '' if none."""
     iso = get_country_code(country_name)
     if iso and iso != 'XX':
-        return COUNTRY_FLAG_EMOJI_IDS.get(iso, '')
+        fid = COUNTRY_FLAG_EMOJI_IDS.get(iso, '')
+        if fid:
+            return fid
+    # Fallback: extract ISO from the flag emoji itself
+    plain_flag = get_country_flag(country_name)
+    if plain_flag and plain_flag != '🌍':
+        iso2 = flag_to_iso(plain_flag)
+        if iso2:
+            return COUNTRY_FLAG_EMOJI_IDS.get(iso2, '')
     return ''
 
 def flag_pe(country_name):
