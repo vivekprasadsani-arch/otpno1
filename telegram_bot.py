@@ -2303,7 +2303,7 @@ def build_console_channel_message(log_item):
         "telegram": "Telegram"
     }.get(service_key, service_raw)
 
-    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_raw))} {html.escape(number_masked)} {html.escape(language)}"
+    return f"{flag_pe(country)} #{country_code} {pe(get_service_icon(service_raw))} {replace_mask_with_cross(number_masked)} {html.escape(language)}"
 
 # Bot Handlers
 async def rangechkr(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4555,8 +4555,8 @@ async def monitor_otp(context: ContextTypes.DEFAULT_TYPE):
                     user_keyboard = [[InlineKeyboardButton(f"{otp}", api_kwargs={"copy_text": {"text": otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]]
                     user_reply_markup = InlineKeyboardMarkup(user_keyboard)
 
-                    # Channel keyboard: OTP copy + Range button side by side.
-                    channel_row = [InlineKeyboardButton(f"{otp}", api_kwargs={"copy_text": {"text": otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]
+                    # Channel keyboard: OTP copy (hidden) + Range button side by side.
+                    channel_row = [InlineKeyboardButton(" ", api_kwargs={"copy_text": {"text": otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]
                     if range_url:
                         channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5215695279377884733", "style": "primary"}))
                     channel_reply_markup = InlineKeyboardMarkup([channel_row])
@@ -4711,7 +4711,7 @@ async def monitor_console_logs(context: ContextTypes.DEFAULT_TYPE):
             
             range_url = await build_range_deeplink(context, range_value, service_key)
 
-            channel_row = [InlineKeyboardButton(f"{masked_otp}", api_kwargs={"copy_text": {"text": masked_otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]
+            channel_row = [InlineKeyboardButton(" ", api_kwargs={"copy_text": {"text": masked_otp}, "icon_custom_emoji_id": "5330066942755615469", "style": "success"})]
             if range_url:
                 channel_row.append(InlineKeyboardButton("Range", url=range_url, api_kwargs={"icon_custom_emoji_id": "5215695279377884733", "style": "primary"}))
             channel_reply_markup = InlineKeyboardMarkup([channel_row])
