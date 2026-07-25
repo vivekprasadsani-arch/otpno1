@@ -413,6 +413,20 @@ def release_bot_lock():
     except Exception:
         pass
 
+async def lock_heartbeat(context):
+    """Periodically refresh our lock expiry so the standby instance knows
+    we are still alive. If we somehow lost the lock, stop polling so the
+    standby can take over immediately."""
+    if try_acquire_bot_lock():
+        logger.debug("🔒 Lock heartbeat refreshed.")
+    else:
+        logger.warning("💔 Lost lock during heartbeat! Stopping polling so standby can take over.")
+        release_bot_lock()
+        try:
+            await context.bot.stop_polling()
+        except Exception:
+            pass
+
 class BestEffortLock:
     """Non-blocking-ish lock to avoid freezing the event loop under contention."""
     def __init__(self, timeout=0.05):
@@ -4943,7 +4957,7 @@ def main():
         )
         # Heartbeat: refresh the distributed lock so standby knows we're alive.
         application.job_queue.run_repeating(
-            _lock_heartbeat,
+            lock_heartbeat,
             interval=max(BOT_LOCK_TTL_SECONDS // 3, 5),
             first=BOT_LOCK_TTL_SECONDS // 3,
             name="lock_heartbeat",
@@ -4968,19 +4982,6 @@ def main():
             logger.warning(f"post_init delete_webhook failed (non-fatal): {e}")
 
     application.post_init = _post_init
-
-    async def _lock_heartbeat(context):
-        """Periodically refresh our lock expiry so the standby instance knows
-        we are still alive. Runs every BOT_LOCK_TTL_SECONDS / 3 seconds."""
-        if try_acquire_bot_lock():
-            logger.debug("🔒 Lock heartbeat refreshed.")
-        else:
-            logger.warning("💔 Lost lock during heartbeat! Stopping polling so standby can take over.")
-            release_bot_lock()
-            try:
-                await context.bot.stop_polling()
-            except Exception:
-                pass
 
     # Standby loop: wait until we become the leader, then poll.
     STANDBY_CHECK_INTERVAL = 5  # seconds
