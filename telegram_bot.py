@@ -4802,15 +4802,17 @@ def main():
     
     # Add error handler for conflict errors
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle errors, especially Conflict errors from multiple instances"""
+        """Handle errors, especially Conflict errors from multiple instances."""
         error = context.error
         if isinstance(error, Conflict):
-            logger.warning(f"⚠️ Conflict error detected: {error}. This usually means multiple bot instances are running. Waiting and retrying...")
-            # Wait a bit and let the other instance handle it, or this instance will take over
+            logger.warning(
+                f"⚠️ Conflict detected during runtime: {error}. "
+                f"Another bot instance is polling — waiting briefly before this one takes over."
+            )
             await asyncio.sleep(5)
         else:
             logger.error(f"❌ Error: {error}", exc_info=error)
-    
+
     application.add_error_handler(error_handler)
 
     # Global console stream monitor (masked OTP logs from /mdashboard/console)
@@ -4830,26 +4832,48 @@ def main():
     else:
         logger.warning("Job queue not available; console OTP monitor not started")
     
-    # Start bot with drop_pending_updates to avoid conflicts
-    logger.info("Bot starting...")
-    try:
-        application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False
-        )
-    except Conflict as e:
-        logger.error(f"❌ Conflict error on startup: {e}. Another bot instance may be running.")
-        logger.info("💡 If you're sure only one instance should run, wait a few seconds and the bot will retry.")
-        # Wait and retry once
-        import time
-        time.sleep(10)
-        logger.info("🔄 Retrying bot startup...")
-        application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False
-        )
+    # Start bot with conflict-tolerant retry loop.
+    # Render/redeploy spins up a new instance while the old one is still alive,
+    # causing Telegram's "409 Conflict: terminated by other getUpdates request".
+    # We proactively drop any stale polling session (post_init) AND retry with
+    # exponential backoff so the token never needs to be revoked manually.
+    import time
+
+    async def _post_init(application):
+        """Runs after Application.initialize() — clears any stale getUpdates/webhook
+        session so this instance can claim getUpdates cleanly."""
+        try:
+            await application.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("🧹 Stale webhook/polling session cleared (delete_webhook).")
+        except Exception as e:
+            logger.warning(f"post_init delete_webhook failed (non-fatal): {e}")
+
+    application.post_init = _post_init
+
+    MAX_RETRIES = 6
+    for attempt in range(1, MAX_RETRIES + 1):
+        logger.info(f"Bot starting... (attempt {attempt}/{MAX_RETRIES})")
+        try:
+            application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+                close_loop=False
+            )
+            break  # exited cleanly (graceful stop) — done
+        except Conflict as e:
+            logger.warning(
+                f"⚠️ Conflict on attempt {attempt}: {e}. "
+                f"Another instance likely still alive — will retry shortly."
+            )
+            # Exponential backoff: 10s, 20s, 40s, 80s, 160s
+            backoff = 10 * (2 ** (attempt - 1))
+            logger.info(f"⏳ Waiting {backoff}s before retry...")
+            time.sleep(backoff)
+        except Exception as e:
+            logger.error(f"❌ Non-conflict error on attempt {attempt}: {e}", exc_info=e)
+            time.sleep(15)
+
+    logger.error("🛑 Exhausted all bot startup retries. Exiting.")
 
 if __name__ == "__main__":
     main()
